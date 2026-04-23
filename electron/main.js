@@ -110,22 +110,25 @@ function spawnBackend() {
 function checkHealth(retries = 30) {
   return new Promise((resolve, reject) => {
     let attempts = 0;
+    let settled = false;
     const check = () => {
+      let called = false;
+      const once = () => { if (called) return; called = true; retry(); };
       const req = http.get("http://127.0.0.1:8899/health", (res) => {
         if (res.statusCode === 200) {
-          resolve();
+          if (!settled) { settled = true; resolve(); }
         } else {
-          retry();
+          once();
         }
         res.resume();
       });
-      req.on("error", retry);
-      req.setTimeout(1000, () => { req.abort(); retry(); });
+      req.on("error", once);
+      req.setTimeout(1000, () => { req.destroy(); once(); });
     };
     const retry = () => {
       attempts++;
       if (attempts >= retries) {
-        reject(new Error("Backend did not start within 30 seconds"));
+        if (!settled) { settled = true; reject(new Error("Backend did not start within 30 seconds")); }
       } else {
         setTimeout(check, 1000);
       }
@@ -206,7 +209,7 @@ async function shutdownBackend() {
         (res) => { res.resume(); resolve(); }
       );
       req.on("error", reject);
-      req.setTimeout(2000, () => { req.abort(); resolve(); });
+      req.setTimeout(2000, () => { req.destroy(); resolve(); });
       req.end();
     });
   } catch (_) {}
