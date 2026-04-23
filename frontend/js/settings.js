@@ -97,6 +97,35 @@
             </div>
           </div>
 
+          <!-- Notifications / Integration -->
+          <div class="settings-section">
+            <div class="settings-section-title">Notifications</div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-name">Play sound on scan complete</div>
+                <div class="settings-row-desc">Subtle chime when a scan finishes.</div>
+              </div>
+              <div class="settings-row-control">
+                <div class="toggle ${currentConfig.sound_enabled !== false ? 'on' : ''}" id="toggle-sound">
+                  <div class="toggle-track"></div>
+                  <span class="toggle-label">${currentConfig.sound_enabled !== false ? 'On' : 'Off'}</span>
+                </div>
+              </div>
+            </div>
+            <div class="settings-row" id="settings-context-row" style="display:none;">
+              <div class="settings-row-info">
+                <div class="settings-row-name">Show 'Scan with CleanSweep' in Windows right-click menu</div>
+                <div class="settings-row-desc">Right-click any folder in Explorer to start a scan.</div>
+              </div>
+              <div class="settings-row-control">
+                <div class="toggle ${currentConfig.context_menu_installed ? 'on' : ''}" id="toggle-context-menu">
+                  <div class="toggle-track"></div>
+                  <span class="toggle-label">${currentConfig.context_menu_installed ? 'On' : 'Off'}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Appearance -->
           <div class="settings-section">
             <div class="settings-section-title">Appearance</div>
@@ -114,21 +143,16 @@
             </div>
           </div>
 
-          <!-- License -->
+          <!-- License / Pro Member (D2) -->
           <div class="settings-section">
-            <div class="settings-section-title">License</div>
-            <div class="settings-row">
-              <div class="settings-row-info">
-                <div class="settings-row-name">License status</div>
-                <div class="settings-row-desc">${isPro ? 'Pro features unlocked.' : 'Free tier — limited to images only.'}</div>
-              </div>
-              <div class="settings-row-control license-status">
-                <span class="license-badge ${isPro ? 'license-badge-pro' : 'license-badge-free'}">
-                  ${isPro ? '★ Pro' : 'Free'}
-                </span>
-              </div>
-            </div>
+            <div class="settings-section-title">${isPro ? 'Pro Member' : 'Upgrade to Pro'}</div>
             ${isPro ? `
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-name">Status <span class="pro-badge">PRO</span></div>
+                  <div class="settings-row-desc">✓ Activated — all features unlocked.</div>
+                </div>
+              </div>
               <div class="settings-row">
                 <div class="settings-row-info">
                   <div class="settings-row-name">License key</div>
@@ -137,10 +161,36 @@
                 <button class="btn btn-ghost btn-sm" id="btn-deactivate-license">Deactivate</button>
               </div>
             ` : `
-              <div>
-                <button class="btn btn-primary btn-sm" id="btn-activate-license">Enter License Key</button>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-name">Unlock Pro features</div>
+                  <div class="settings-row-desc">Unlimited scanning, video support, and document scanning for $29 (one-time).</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button class="btn btn-primary btn-sm" id="btn-upgrade-pro">Upgrade to Pro</button>
+                <button class="btn btn-ghost btn-sm" id="btn-activate-license">Already have a key? Activate</button>
               </div>
             `}
+          </div>
+
+          <!-- Your Stats (D3) -->
+          <div class="settings-section">
+            <div class="settings-section-title">Your Stats</div>
+            <div class="stats-row">
+              <div class="stat-block">
+                <div class="stat-block-label">📊 Files scanned</div>
+                <div class="stat-block-value">${(currentConfig.lifetime_files_scanned || 0).toLocaleString()}</div>
+              </div>
+              <div class="stat-block">
+                <div class="stat-block-label">⏱ Scan time</div>
+                <div class="stat-block-value">${formatLifetimeSeconds(currentConfig.lifetime_scan_seconds || 0)}</div>
+              </div>
+              <div class="stat-block">
+                <div class="stat-block-label">🛡 Items flagged</div>
+                <div class="stat-block-value">${(currentConfig.lifetime_flagged || 0).toLocaleString()}</div>
+              </div>
+            </div>
           </div>
 
           <!-- About -->
@@ -226,11 +276,55 @@
       saveConfig({ theme: isLight ? 'light' : 'dark' });
     });
 
-    // License activation
+    // License activation / Upgrade
     document.getElementById('btn-activate-license')?.addEventListener('click', () => {
       document.getElementById('license-error')?.classList.add('hidden');
       document.getElementById('license-key-input') && (document.getElementById('license-key-input').value = '');
       document.getElementById('modal-license')?.classList.add('visible');
+    });
+    document.getElementById('btn-upgrade-pro')?.addEventListener('click', () => {
+      // Open the license activation modal for now (in future could link to pricing page)
+      document.getElementById('license-error')?.classList.add('hidden');
+      document.getElementById('license-key-input') && (document.getElementById('license-key-input').value = '');
+      document.getElementById('modal-license')?.classList.add('visible');
+    });
+
+    // B2: Sound toggle
+    document.getElementById('toggle-sound')?.addEventListener('click', function () {
+      this.classList.toggle('on');
+      const on = this.classList.contains('on');
+      this.querySelector('.toggle-label').textContent = on ? 'On' : 'Off';
+      saveConfig({ sound_enabled: on });
+    });
+
+    // E1: Context menu toggle (only meaningful on Windows)
+    if (window.electronAPI?.installContextMenu && navigator.userAgent.includes('Windows')) {
+      const ctxRow = document.getElementById('settings-context-row');
+      if (ctxRow) ctxRow.style.display = 'flex';
+    }
+    document.getElementById('toggle-context-menu')?.addEventListener('click', async function () {
+      const wasOn = this.classList.contains('on');
+      this.classList.toggle('on');
+      const on = !wasOn;
+      this.querySelector('.toggle-label').textContent = on ? 'On' : 'Off';
+      try {
+        const result = on
+          ? await window.electronAPI?.installContextMenu?.()
+          : await window.electronAPI?.uninstallContextMenu?.();
+        if (result && result.ok) {
+          saveConfig({ context_menu_installed: on });
+          toast(on ? 'Right-click menu enabled.' : 'Right-click menu removed.', 'success');
+        } else {
+          // Revert toggle on failure
+          this.classList.toggle('on');
+          this.querySelector('.toggle-label').textContent = wasOn ? 'On' : 'Off';
+          toast('Could not modify the right-click menu. ' + (result?.error || 'Try running CleanSweep as administrator once.'), 'error', 5000);
+        }
+      } catch (err) {
+        this.classList.toggle('on');
+        this.querySelector('.toggle-label').textContent = wasOn ? 'On' : 'Off';
+        toast('Context menu update failed: ' + err.message, 'error');
+      }
     });
 
     // Deactivate license
@@ -246,6 +340,14 @@
     api.setConfig(updates).catch(() => {
       toast('Failed to save setting.', 'error');
     });
+  }
+
+  function formatLifetimeSeconds(s) {
+    const total = Math.round(s || 0);
+    if (total < 60) return `${total}s`;
+    if (total < 3600) return `${Math.floor(total / 60)}m`;
+    const hours = total / 3600;
+    return hours >= 10 ? `${Math.round(hours)}h` : `${hours.toFixed(1)}h`;
   }
 
   document.addEventListener('keydown', (e) => {

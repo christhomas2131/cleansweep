@@ -22,4 +22,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   /** Notify main process that a scan is in progress (for close dialog) */
   setScanRunning: (isRunning) => ipcRenderer.invoke("set-scan-running", isRunning),
+
+  /** Update Windows taskbar progress (0..1, or -1 to clear) */
+  setTaskbarProgress: (p) => ipcRenderer.send("taskbar-progress", p),
+
+  /** Install/uninstall Windows right-click context menu */
+  installContextMenu: () => ipcRenderer.invoke("install-context-menu"),
+  uninstallContextMenu: () => ipcRenderer.invoke("uninstall-context-menu"),
+
+  /** Listen for deep-link scan folder (from --scan-folder CLI arg) */
+  onScanFolder: (cb) => ipcRenderer.on("scan-folder-cli", (_e, folder) => cb(folder)),
 });

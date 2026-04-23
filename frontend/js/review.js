@@ -9,9 +9,14 @@
   let currentSort = 'score_desc';
   let currentTypeFilter = 'all';
   let histScoreFilter = null; // null = no filter, or [min, max]
+  let showTopOnly = false;    // C2: "Top 10 Worst" filter
+  let skipDuplicates = false; // C3
+  let duplicatesHidden = 0;   // C3
   let reviewInitialized = false;
   let pendingDeletePaths = [];
   let pendingQuarantinePaths = [];
+  let lastStagingId = null;   // C4: last delete for Ctrl+Z undo
+  let lastStagingTimer = null;
 
   // ── Entry point ───────────────────────────────────────────────
   async function initReview() {
@@ -19,6 +24,17 @@
     selectedSet.clear();
     currentPage = 1;
     histScoreFilter = null;
+    showTopOnly = false;
+
+    // Load config to respect hide_duplicates_default
+    try {
+      const cfg = await api.config();
+      if (cfg && cfg.hide_duplicates_default) {
+        skipDuplicates = true;
+        const cb = document.getElementById('opt-skip-duplicates');
+        if (cb) cb.checked = true;
+      }
+    } catch {}
 
     try {
       await loadAllResults();
@@ -34,12 +50,43 @@
     wireModals();
     wireKeyboard();
     wireTypeFilter();
+    maybeShowReviewTip();
+  }
+
+  // ── A4: Review screen onboarding tip ────────────────────────
+  function maybeShowReviewTip() {
+    api.config().then(cfg => {
+      if (cfg && cfg.first_scan_complete && !cfg.review_tip_shown && allResults.length > 0) {
+        const tip = document.createElement('div');
+        tip.className = 'review-onboarding-tip';
+        tip.innerHTML = `
+          <span>💡 Hover any card to unblur. Click to select. Use the toolbar to delete or quarantine.</span>
+          <button class="btn btn-xs" id="tip-dismiss">Got it</button>`;
+        document.body.appendChild(tip);
+        const dismiss = () => {
+          tip.remove();
+          api.setConfig({ review_tip_shown: true }).catch(() => {});
+        };
+        tip.querySelector('#tip-dismiss')?.addEventListener('click', dismiss);
+        setTimeout(dismiss, 12000);
+      }
+    }).catch(() => {});
   }
 
   async function loadAllResults() {
-    // api.getResults(page, perPage, sortBy, sortOrder, type) for paginated server calls
-    const data = await api.getAllResults();
+    // Uses api.getAllResults (a getResults wrapper) to fetch the full results list in one request.
+    // Regular delete via api.deleteFiles is replaced with stage-delete/confirm-delete so Ctrl+Z can undo.
+    const data = await api.getAllResults(skipDuplicates);
     allResults = (data.items || []);
+    duplicatesHidden = data.duplicates_hidden || 0;
+    const dupEl = document.getElementById('dup-count-text');
+    if (dupEl) {
+      if (duplicatesHidden > 0) {
+        dupEl.textContent = ` (hides ${duplicatesHidden.toLocaleString()})`;
+      } else {
+        dupEl.textContent = '';
+      }
+    }
     updateReviewHeader(data.total || allResults.length);
   }
 
@@ -80,6 +127,11 @@
       return 0;
     });
 
+    // C2: Top 10 Worst — override sort to descending score, take top 10
+    if (showTopOnly) {
+      items = [...items].sort((a, b) => b.score - a.score).slice(0, 10);
+    }
+
     return items;
   }
 
@@ -105,7 +157,8 @@
     }
 
     document.getElementById('pagination')?.classList.remove('hidden');
-    document.getElementById('quick-select-bar')?.classList.remove('hidden');
+    document.querySelector('.quick-select-bar')?.classList.remove('hidden');
+    document.querySelector('.type-filter-bar')?.classList.remove('hidden');
 
     grid.innerHTML = '';
     pageItems.forEach(item => {
@@ -173,15 +226,30 @@
   }
 
   function renderEmptyState() {
+    // Pull scan stats for celebration
+    let scanned = 0, durationStr = '';
+    try {
+      const stored = JSON.parse(sessionStorage.getItem('lastScanTotal') || '{}');
+      scanned = stored.total || stored.scanned || 0;
+    } catch {}
+
     const div = document.createElement('div');
-    div.className = 'empty-state';
+    div.className = 'empty-celebration';
     div.style.gridColumn = '1 / -1';
+    const detail = scanned > 0
+      ? `Scanned ${scanned.toLocaleString()} file${scanned !== 1 ? 's' : ''}. No sensitive content found.`
+      : 'No sensitive content was detected. Safe to share.';
     div.innerHTML = `
-      <div class="empty-icon">✓</div>
+      <div class="empty-celebration-icon">✓</div>
       <div class="empty-title">All clear!</div>
-      <div class="empty-text">No sensitive content was detected, or all flagged items have been removed. Safe to share.</div>
+      <div class="empty-text">${detail}</div>
       <button class="btn btn-primary" onclick="showScreen('scan-setup')">Scan Another Folder</button>
     `;
+
+    // Hide the toolbars + histogram when empty for a clean celebration
+    document.querySelector('.quick-select-bar')?.classList.add('hidden');
+    document.getElementById('histogram-panel')?.classList.remove('visible');
+    document.querySelector('.type-filter-bar')?.classList.add('hidden');
     return div;
   }
 
@@ -301,6 +369,25 @@
         renderGrid();
       });
     });
+
+    // C1: Adaptive tip based on distribution
+    const tipEl = document.getElementById('histogram-tip');
+    if (tipEl) {
+      const totalCount = counts.reduce((s, b) => s + b.count, 0);
+      if (totalCount === 0) {
+        tipEl.textContent = '';
+      } else {
+        const lowPct = (counts[0].count + counts[1].count) / totalCount;
+        const highPct = (counts[3].count + counts[4].count) / totalCount;
+        if (highPct >= 0.6) {
+          tipEl.textContent = '💡 Most flags are high confidence — likely true matches.';
+        } else if (lowPct >= 0.6) {
+          tipEl.textContent = '💡 Most flags are lower confidence — many may be false positives.';
+        } else {
+          tipEl.textContent = '💡 Mixed confidence — review by category using filters above.';
+        }
+      }
+    }
   }
 
   // ── Toolbar wiring ────────────────────────────────────────────
@@ -377,6 +464,31 @@
       panel?.classList.toggle('visible');
     });
 
+    // C2: Top 10 Worst
+    document.getElementById('qs-worst')?.addEventListener('click', () => {
+      showTopOnly = !showTopOnly;
+      const btn = document.getElementById('qs-worst');
+      if (btn) {
+        btn.classList.toggle('active', showTopOnly);
+        btn.textContent = showTopOnly ? 'Showing top 10 worst' : '🚨 Top 10 Worst';
+      }
+      currentPage = 1;
+      renderGrid();
+    });
+
+    // C3: Skip duplicates
+    document.getElementById('opt-skip-duplicates')?.addEventListener('change', async (ev) => {
+      skipDuplicates = !!ev.target.checked;
+      api.setConfig({ hide_duplicates_default: skipDuplicates }).catch(() => {});
+      try {
+        await loadAllResults();
+      } catch { toast('Failed to reload results.', 'error'); return; }
+      currentPage = 1;
+      renderGrid();
+      renderHistogram();
+      updateSelectionUI();
+    });
+
     wireQuickSelect();
   }
 
@@ -446,11 +558,14 @@
       const btn = document.getElementById('btn-delete-confirm');
       withLoading(btn, async () => {
         try {
-          const res = await api.deleteFiles(pendingDeletePaths);
+          // Use staging so Ctrl+Z can undo
+          const staged = await api.stageDelete(pendingDeletePaths);
           document.getElementById('modal-delete')?.classList.remove('visible');
-          const deleted = res.deleted || 0;
-          toast(`Deleted ${deleted} file${deleted !== 1 ? 's' : ''}.`, 'success');
-          // Remove deleted items from allResults
+          const count = staged.count || 0;
+          if (staged.staging_id) {
+            trackStaging(staged.staging_id);
+          }
+          toast(`Deleted ${count} file${count !== 1 ? 's' : ''}. Press Ctrl+Z to undo.`, 'success', 5000);
           const pathSet = new Set(pendingDeletePaths);
           allResults = allResults.filter(r => !pathSet.has(r.path));
           selectedSet.clear();
@@ -458,6 +573,13 @@
           renderGrid();
           renderHistogram();
           updateSelectionUI();
+          // Auto-confirm (purge staged files) after 30 seconds
+          setTimeout(() => {
+            if (lastStagingId === staged.staging_id && staged.staging_id) {
+              api.confirmDelete(staged.staging_id).catch(() => {});
+              lastStagingId = null;
+            }
+          }, 30000);
         } catch (err) {
           toast('Delete failed: ' + err.message, 'error');
         }
@@ -513,6 +635,16 @@
     });
   }
 
+  // ── C4: Track last staging for undo ──────────────────────────
+  function trackStaging(stagingId) {
+    lastStagingId = stagingId;
+    if (lastStagingTimer) clearTimeout(lastStagingTimer);
+    lastStagingTimer = setTimeout(() => {
+      lastStagingId = null;
+      lastStagingTimer = null;
+    }, 30000);
+  }
+
   // ── Keyboard shortcuts ────────────────────────────────────────
   function wireKeyboard() {
     document.addEventListener('keydown', e => {
@@ -521,6 +653,30 @@
         document.querySelectorAll('.modal.visible').forEach(m => m.classList.remove('visible'));
         const overlay = document.getElementById('tutorial-overlay');
         if (overlay?.classList.contains('visible')) overlay.classList.remove('visible');
+      }
+      // C4: Ctrl+Z / Cmd+Z undoes last delete (only on review screen)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        if (appState.currentScreen === 'scan-review') {
+          e.preventDefault();
+          if (lastStagingId) {
+            const id = lastStagingId;
+            lastStagingId = null;
+            if (lastStagingTimer) { clearTimeout(lastStagingTimer); lastStagingTimer = null; }
+            api.undoDelete(id).then(async () => {
+              toast('Undid last delete', 'success');
+              try {
+                await loadAllResults();
+                renderGrid();
+                renderHistogram();
+                updateSelectionUI();
+              } catch {}
+            }).catch(() => {
+              toast('Undo failed — files may have been permanently deleted.', 'error');
+            });
+          } else {
+            toast('Nothing to undo', 'info');
+          }
+        }
       }
       // Arrow keys for pagination when on review screen
       if (appState.currentScreen === 'scan-review') {

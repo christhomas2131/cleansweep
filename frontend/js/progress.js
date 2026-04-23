@@ -2,12 +2,19 @@
 (function () {
   let pollInterval = null;
   let lastFlaggedCount = 0;
+  let isPaused = false;
+  let soundPlayed = false;
+  let currentConfig = {};
 
   function startProgressPolling() {
     if (pollInterval) clearInterval(pollInterval);
     lastFlaggedCount = 0;
+    isPaused = false;
+    soundPlayed = false;
     updateProgressUI({ status: 'loading_model', percent: 0, scanned: 0, flagged_count: 0 });
     pollInterval = setInterval(fetchProgress, 500);
+    // Load config for sound preference
+    api.config().then(c => { currentConfig = c || {}; }).catch(() => {});
   }
 
   function stopProgressPolling() {
@@ -71,8 +78,21 @@
     const status = p.status || 'idle';
     const pct = Math.round(p.percent || 0);
     const isLoadingModel = status === 'loading_model';
+    isPaused = !!p.paused;
 
     setLoadingModelMode(isLoadingModel);
+    updatePauseButton();
+
+    // B4: Taskbar progress
+    if (window.electronAPI?.setTaskbarProgress) {
+      if (isLoadingModel || status === 'idle') {
+        window.electronAPI.setTaskbarProgress(-1);
+      } else if (status === 'scanning') {
+        window.electronAPI.setTaskbarProgress(pct / 100);
+      } else {
+        window.electronAPI.setTaskbarProgress(-1);
+      }
+    }
 
     // Progress bar and percent
     const bar = document.getElementById('progress-bar');
@@ -90,11 +110,26 @@
     }
     if (label) {
       if (status === 'loading_model') label.textContent = 'Loading AI model...';
+      else if (status === 'scanning' && isPaused) label.textContent = `Paused at ${pct}%`;
       else if (status === 'scanning') label.textContent = 'Scanning...';
       else if (status === 'complete') label.textContent = 'Scan complete';
       else if (status === 'stopped') label.textContent = 'Scan stopped';
       else if (status === 'error') label.textContent = 'Error';
       else label.textContent = 'Scanning...';
+    }
+
+    // Title bar reflects paused state
+    if (status === 'scanning' && isPaused) {
+      document.title = `CleanSweep — Paused at ${pct}%`;
+    } else if (status === 'scanning') {
+      document.title = `CleanSweep — Scanning (${pct}%)`;
+    } else {
+      document.title = 'CleanSweep';
+    }
+
+    // Pulse dot: don't animate while paused
+    if (dot) {
+      if (isPaused && status === 'scanning') dot.classList.add('idle');
     }
 
     // Stats
@@ -160,6 +195,16 @@
     const flagged = p.flagged_count || 0;
     toast(`Scan complete! Found ${flagged} item${flagged !== 1 ? 's' : ''} to review.`, 'success', 4000);
     window.electronAPI?.setScanRunning?.(false).catch(() => {});
+    window.electronAPI?.setTaskbarProgress?.(-1);
+
+    // B2: Completion sound
+    if (!soundPlayed) {
+      soundPlayed = true;
+      playCompletionSound();
+    }
+
+    // Store total scanned count for review screen header
+    try { sessionStorage.setItem('lastScanTotal', JSON.stringify({ total: p.total || 0, scanned: p.scanned || 0 })); } catch {}
 
     // Auto-navigate after 3 seconds
     const timer = setTimeout(() => {
@@ -173,9 +218,57 @@
     }
   }
 
+  // ── B2: Completion sound ─────────────────────────────────────
+  function playCompletionSound() {
+    if (currentConfig && currentConfig.sound_enabled === false) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ctx = new AC();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(880, ctx.currentTime);        // A5
+      osc.frequency.setValueAtTime(1320, ctx.currentTime + 0.15); // E6
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.5);
+    } catch (e) {
+      // Silent failure is fine for a nice-to-have
+    }
+  }
+
+  // ── B1: Pause/Resume ─────────────────────────────────────────
+  function updatePauseButton() {
+    const btn = document.getElementById('btn-pause-scan');
+    if (!btn) return;
+    btn.textContent = isPaused ? '▶ Resume' : '⏸ Pause';
+    btn.classList.toggle('btn-warning', !isPaused);
+    btn.classList.toggle('btn-primary', isPaused);
+  }
+  function wirePauseButton() {
+    const btn = document.getElementById('btn-pause-scan');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        if (isPaused) await api.resumeScan();
+        else await api.pauseScan();
+      } catch (e) {
+        toast('Pause/resume failed: ' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+  document.addEventListener('DOMContentLoaded', wirePauseButton);
+
   function onScanStopped(p) {
     updateProgressUI(p);
     window.electronAPI?.setScanRunning?.(false).catch(() => {});
+    window.electronAPI?.setTaskbarProgress?.(-1);
     const flagged = p.flagged_count || 0;
     if (flagged > 0) {
       toast(`Scan stopped — ${flagged} items flagged so far. Click "Review Results" to review.`, 'warning', 5000);
@@ -188,6 +281,7 @@
   function onScanError(p) {
     updateProgressUI(p);
     window.electronAPI?.setScanRunning?.(false).catch(() => {});
+    window.electronAPI?.setTaskbarProgress?.(-1);
     toast('Scanner error: ' + (p.error_message || 'Unknown error'), 'error', 5000);
   }
 

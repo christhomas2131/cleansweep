@@ -67,6 +67,7 @@ shared_state = {
 }
 
 _stop_flag = threading.Event()
+_pause_flag = threading.Event()
 _scan_lock = threading.Lock()
 
 _RESULTS_FILE = ".cleansweep_results.json"
@@ -100,6 +101,26 @@ def set_stop():
 
 def is_stopped():
     return _stop_flag.is_set()
+
+
+def set_pause():
+    _pause_flag.set()
+
+
+def clear_pause():
+    _pause_flag.clear()
+
+
+def is_paused():
+    return _pause_flag.is_set()
+
+
+def _wait_if_paused():
+    """Block while the pause flag is set, polling for stop."""
+    while _pause_flag.is_set():
+        if _stop_flag.is_set():
+            return
+        time.sleep(0.5)
 
 
 def find_files(folder, scan_images=True, scan_videos=True, scan_documents=True):
@@ -161,13 +182,15 @@ def _load_image(path):
 
 
 def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documents=True,
-             use_gpu=False, batch_size=4, is_free_tier=False, file_limit=500):
+             use_gpu=False, batch_size=4, is_free_tier=False, file_limit=500,
+             only_new_cutoff=None):
     """
     Main scanning function — runs in a background thread.
     Updates shared_state throughout.
     """
     global shared_state
     _stop_flag.clear()
+    _pause_flag.clear()
 
     with _scan_lock:
         shared_state.update({
@@ -194,6 +217,7 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
             "limit_reached": False,
             "use_gpu": use_gpu,
             "batch_size": batch_size,
+            "paused": False,
         })
 
     try:
@@ -307,6 +331,17 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
 
         # Find files
         images, videos, documents = find_files(folder, scan_images, scan_videos, scan_documents)
+
+        # Apply only_new_cutoff: scan only files modified after the cutoff
+        if only_new_cutoff:
+            def _is_new(p):
+                try:
+                    return os.path.getmtime(p) > only_new_cutoff
+                except OSError:
+                    return False
+            images = [p for p in images if _is_new(p)]
+            videos = [p for p in videos if _is_new(p)]
+            documents = [p for p in documents if _is_new(p)]
 
         # Free tier limits
         if is_free_tier:
@@ -424,6 +459,7 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
                         "type": "image",
                         "score": score,
                         "thumbnail_b64": thumbnail_b64,
+                        "file_hash": compute_quick_hash(path),
                     })
                 else:
                     # Track as clean
@@ -450,6 +486,9 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
                 return executor.submit(lambda paths=batch_paths: [_load_image(p) for p in paths])
 
             while i < len(images):
+                if is_stopped():
+                    break
+                _wait_if_paused()
                 if is_stopped():
                     break
 
@@ -536,6 +575,9 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
         for vidx, vpath in enumerate(videos):
             if is_stopped():
                 break
+            _wait_if_paused()
+            if is_stopped():
+                break
 
             def video_progress(frame_num, total_frames, fname=os.path.basename(vpath)):
                 with _scan_lock:
@@ -555,6 +597,11 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
                 shared_state["videos_scanned"] += 1
 
             if result:
+                # Record hash for dedup
+                try:
+                    result["file_hash"] = compute_quick_hash(vpath)
+                except Exception:
+                    pass
                 results.append(result)
                 total_flagged_count += 1
 
@@ -562,6 +609,9 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
 
         # ── Scan documents ─────────────────────────────────────────────────
         for didx, dpath in enumerate(documents):
+            if is_stopped():
+                break
+            _wait_if_paused()
             if is_stopped():
                 break
 
@@ -585,6 +635,10 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
                 shared_state["documents_scanned"] += 1
 
             if result:
+                try:
+                    result["file_hash"] = compute_quick_hash(dpath)
+                except Exception:
+                    pass
                 results.append(result)
                 total_flagged_count += 1
 

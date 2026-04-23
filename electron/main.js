@@ -5,7 +5,7 @@
 
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn, execSync } = require("child_process");
 const http = require("http");
 const fs = require("fs");
 
@@ -163,6 +163,14 @@ function createWindow() {
     mainWindow.webContents.openDevTools({ mode: "detach" });
   }
 
+  // Deep-link CLI: forward --scan-folder to the renderer once DOM is ready
+  const scanFolderArg = getScanFolderArg();
+  if (scanFolderArg) {
+    mainWindow.webContents.once("did-finish-load", () => {
+      try { mainWindow.webContents.send("scan-folder-cli", scanFolderArg); } catch (_) {}
+    });
+  }
+
   // Close dialog if scan is running
   mainWindow.on("close", (e) => {
     if (scanIsRunning) {
@@ -256,6 +264,64 @@ ipcMain.handle("close-window", () => {
 ipcMain.handle("set-scan-running", (_event, isRunning) => {
   scanIsRunning = isRunning;
 });
+
+// ── B4: Taskbar progress ──────────────────────────────────────────────────────
+ipcMain.on("taskbar-progress", (_event, percent) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.setProgressBar(percent >= 0 ? percent : -1);
+    } catch (e) {
+      // setProgressBar not supported on some platforms
+    }
+  }
+});
+
+// ── E1: Windows right-click context menu ─────────────────────────────────────
+function installContextMenu() {
+  if (process.platform !== "win32") return { ok: false, error: "Only supported on Windows" };
+  try {
+    const exePath = app.getPath("exe");
+    const escapedExe = exePath.replace(/\\/g, "\\\\");
+    const commands = [
+      `reg add "HKCU\\Software\\Classes\\Directory\\shell\\CleanSweep" /ve /d "Scan with CleanSweep" /f`,
+      `reg add "HKCU\\Software\\Classes\\Directory\\shell\\CleanSweep" /v Icon /d "${escapedExe}" /f`,
+      `reg add "HKCU\\Software\\Classes\\Directory\\shell\\CleanSweep\\command" /ve /d "\\"${escapedExe}\\" --scan-folder \\"%1\\"" /f`,
+    ];
+    for (const cmd of commands) execSync(cmd, { windowsHide: true });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+function uninstallContextMenu() {
+  if (process.platform !== "win32") return { ok: false, error: "Only supported on Windows" };
+  try {
+    execSync(`reg delete "HKCU\\Software\\Classes\\Directory\\shell\\CleanSweep" /f`, { windowsHide: true });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+ipcMain.handle("install-context-menu", () => installContextMenu());
+ipcMain.handle("uninstall-context-menu", () => uninstallContextMenu());
+
+// ── Parse --scan-folder CLI arg ──────────────────────────────────────────────
+function getScanFolderArg() {
+  for (const arg of process.argv) {
+    if (arg.startsWith("--scan-folder=")) {
+      return arg.slice("--scan-folder=".length);
+    }
+    if (arg === "--scan-folder") {
+      const idx = process.argv.indexOf(arg);
+      if (idx >= 0 && idx + 1 < process.argv.length) {
+        return process.argv[idx + 1];
+      }
+    }
+  }
+  return null;
+}
 
 // ── App Lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {

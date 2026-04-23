@@ -44,6 +44,12 @@
       </div>
 
       <div class="setup-card">
+        <!-- Recent scans -->
+        <div id="recent-scans-section" class="recent-scans-section" style="display:none;">
+          <div class="section-label">Recent scans</div>
+          <div id="recent-scans-list"></div>
+        </div>
+
         <!-- Folder drop zone -->
         <div>
           <div class="section-label">Folder to scan</div>
@@ -70,6 +76,19 @@
           <div class="fp-path" id="preview-path"></div>
         </div>
 
+        <!-- Scan time estimate -->
+        <div id="scan-estimate" class="scan-estimate" style="display:none;"></div>
+
+        <!-- New files banner (A2) -->
+        <div id="new-files-banner" class="new-files-banner" style="display:none;">
+          <div class="nfb-icon">📂</div>
+          <div class="nfb-text" id="new-files-text">0 new files since your last scan.</div>
+          <div class="nfb-actions">
+            <button class="btn btn-primary btn-sm" id="btn-scan-only-new">Scan only new</button>
+            <button class="btn btn-ghost btn-sm" id="btn-scan-all">Scan all</button>
+          </div>
+        </div>
+
         <!-- Resume banner -->
         <div id="resume-banner" class="resume-banner">
           <div class="resume-banner-text" id="resume-text">Previous scan found. Resume or start fresh?</div>
@@ -80,13 +99,16 @@
         </div>
 
         <!-- Threshold -->
-        <div class="threshold-section">
+        <div class="threshold-section" style="position:relative;">
           <div class="section-label">Sensitivity threshold</div>
           <div class="threshold-value" id="threshold-display">50%</div>
           <input type="range" id="threshold-slider" min="10" max="90" step="5" value="50">
           <div class="threshold-labels">
             <span>More sensitive (catches more)</span>
             <span>More strict (fewer false positives)</span>
+          </div>
+          <div id="onboarding-tip-threshold" class="onboarding-tip" style="display:none;">
+            💡 Lower = catches more potential matches. Higher = fewer false positives. 50% is a good starting point.
           </div>
         </div>
 
@@ -161,6 +183,7 @@
         </div>
         <div class="current-file" id="current-file">Starting scanner...</div>
         <div class="progress-footer">
+          <button class="btn btn-ghost" id="btn-pause-scan">⏸ Pause</button>
           <button class="btn btn-ghost" id="btn-stop-scan">Stop Scan</button>
           <button class="btn btn-primary hidden" id="btn-review-from-progress">Review Results</button>
         </div>
@@ -201,13 +224,19 @@
       <button class="qs-btn" id="qs-90">90%+</button>
       <button class="qs-btn" id="qs-80">80%+</button>
       <button class="qs-btn" id="qs-70">70%+</button>
+      <button class="qs-btn qs-worst" id="qs-worst">🚨 Top 10 Worst</button>
+      <label class="option-check" style="margin-left:12px;font-size:12px;">
+        <input type="checkbox" id="opt-skip-duplicates"> Skip duplicates
+        <span id="dup-count-text" class="dup-count-text"></span>
+      </label>
       <button class="histogram-toggle" id="histogram-toggle">📊 Distribution</button>
     </div>
 
-    <!-- Histogram panel -->
-    <div class="histogram-panel" id="histogram-panel">
+    <!-- Histogram panel (C1) -->
+    <div class="histogram-panel visible" id="histogram-panel">
       <div class="histogram-title">Confidence distribution — click a bar to filter</div>
       <div class="histogram-bars" id="histogram-bars"></div>
+      <div class="histogram-tip" id="histogram-tip"></div>
     </div>
 
     <!-- Type filter -->

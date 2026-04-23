@@ -78,7 +78,7 @@ setup_logging()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-from scanner import shared_state, run_scan, set_stop, find_files, _scan_lock, IMAGE_EXTENSIONS
+from scanner import shared_state, run_scan, set_stop, find_files, _scan_lock, IMAGE_EXTENSIONS, set_pause, clear_pause, is_paused
 from video_scanner import check_ffmpeg, VIDEO_EXTENSIONS
 from document_scanner import DOCUMENT_EXTENSIONS
 from progress import load_progress, save_progress, clear_progress
@@ -151,12 +151,20 @@ def _cache_thumbnail(key, value):
 # ── Config helpers ────────────────────────────────────────────────────────────
 DEFAULT_CONFIG = {
     "first_run_complete": False,
+    "first_scan_complete": False,
     "default_threshold": 0.5,
     "default_quarantine_path": "",
     "theme": "dark",
     "check_updates": True,
     "use_gpu": False,
     "batch_size": 4,
+    "sound_enabled": True,
+    "hide_duplicates_default": False,
+    "context_menu_installed": False,
+    "avg_speed_imgs_per_sec": 6.0,
+    "lifetime_files_scanned": 0,
+    "lifetime_scan_seconds": 0.0,
+    "lifetime_flagged": 0,
 }
 
 
@@ -315,6 +323,57 @@ def preview():
     })
 
 
+@app.route("/folder-diff", methods=["GET"])
+def folder_diff():
+    """Return count of files new or modified since last scan of this folder."""
+    folder = request.args.get("folder", "")
+    if not folder or not os.path.isdir(folder):
+        return jsonify({"error": "Invalid or missing folder path"}), 400
+
+    # Find the most recent history entry for this folder
+    last_scan_date = None
+    last_scan_iso = None
+    try:
+        for entry in load_scan_history():
+            if os.path.normpath(entry.get("folder", "")) == os.path.normpath(folder):
+                last_scan_iso = entry.get("date")
+                last_scan_date = datetime.fromisoformat(last_scan_iso).timestamp()
+                break
+    except Exception:
+        last_scan_date = None
+
+    all_extensions = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS | DOCUMENT_EXTENSIONS
+    total_files = 0
+    new_since_last_scan = 0
+
+    try:
+        for root, dirs, files in os.walk(folder):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for fname in files:
+                if fname.startswith("."):
+                    continue
+                ext = os.path.splitext(fname)[1].lower()
+                if ext not in all_extensions:
+                    continue
+                total_files += 1
+                if last_scan_date:
+                    try:
+                        mtime = os.path.getmtime(os.path.join(root, fname))
+                        if mtime > last_scan_date:
+                            new_since_last_scan += 1
+                    except OSError:
+                        pass
+    except PermissionError as e:
+        return jsonify({"error": f"Permission denied: {e}"}), 400
+
+    return jsonify({
+        "total_files": total_files,
+        "new_since_last_scan": new_since_last_scan if last_scan_date else 0,
+        "last_scan_date": last_scan_iso,
+        "has_prior_scan": last_scan_date is not None,
+    })
+
+
 @app.route("/scan", methods=["POST"])
 def start_scan():
     global _scan_thread, _scan_start_time
@@ -328,6 +387,7 @@ def start_scan():
     use_gpu = data.get("use_gpu", False)
     batch_size = data.get("batch_size", 4)
     reset = data.get("reset", False)
+    only_new = data.get("only_new", False)
 
     # Prevent duplicate scans
     if shared_state.get("status") == "scanning":
@@ -379,6 +439,27 @@ def start_scan():
     if is_free_tier:
         videos = []
         documents = []
+
+    # Apply only_new filter if requested
+    only_new_cutoff = None
+    if only_new:
+        for entry in load_scan_history():
+            if os.path.normpath(entry.get("folder", "")) == os.path.normpath(folder):
+                try:
+                    only_new_cutoff = datetime.fromisoformat(entry.get("date")).timestamp()
+                    break
+                except Exception:
+                    pass
+        if only_new_cutoff:
+            def _is_new(p):
+                try:
+                    return os.path.getmtime(p) > only_new_cutoff
+                except OSError:
+                    return False
+            images = [p for p in images if _is_new(p)]
+            videos = [p for p in videos if _is_new(p)]
+            documents = [p for p in documents if _is_new(p)]
+
     total_files = len(images) + len(videos) + len(documents)
 
     _scan_start_time = time.time()
@@ -397,6 +478,7 @@ def start_scan():
                 use_gpu=use_gpu and GPU_AVAILABLE,
                 batch_size=batch_size,
                 is_free_tier=is_free_tier,
+                only_new_cutoff=only_new_cutoff,
             )
         except MemoryError:
             import gc
@@ -427,14 +509,37 @@ def start_scan():
                 types.append("videos")
             if scan_documents:
                 types.append("documents")
+            scanned_n = state.get("scanned", 0)
+            flagged_n = state.get("flagged_count", 0)
             save_scan_history(
                 folder=folder,
-                total_files=state.get("scanned", 0),
-                flagged_count=state.get("flagged_count", 0),
+                total_files=scanned_n,
+                flagged_count=flagged_n,
                 threshold=threshold,
                 types_scanned=types,
                 duration_seconds=round(duration, 1),
             )
+            # Update lifetime stats + rolling average speed
+            try:
+                cfg = load_config()
+                lifetime_files = int(cfg.get("lifetime_files_scanned", 0)) + scanned_n
+                lifetime_secs = float(cfg.get("lifetime_scan_seconds", 0.0)) + duration
+                lifetime_flagged = int(cfg.get("lifetime_flagged", 0)) + flagged_n
+                # Rolling average speed, weighted ~20% toward this run
+                new_rate = (scanned_n / duration) if duration > 0 else 0
+                prev_avg = float(cfg.get("avg_speed_imgs_per_sec", 6.0))
+                if new_rate > 0:
+                    avg_speed = prev_avg * 0.8 + new_rate * 0.2
+                else:
+                    avg_speed = prev_avg
+                save_config({
+                    "lifetime_files_scanned": lifetime_files,
+                    "lifetime_scan_seconds": lifetime_secs,
+                    "lifetime_flagged": lifetime_flagged,
+                    "avg_speed_imgs_per_sec": round(avg_speed, 2),
+                })
+            except Exception as _e:
+                log.warning(f"Failed to update lifetime stats: {_e}")
 
     _scan_thread = threading.Thread(target=run, daemon=True)
     _scan_thread.start()
@@ -479,6 +584,7 @@ def get_progress():
         "documents_scanned": state.get("documents_scanned", 0),
         "skipped_unchanged": state.get("skipped_unchanged", 0),
         "limit_reached": state.get("limit_reached", False),
+        "paused": state.get("paused", False),
     })
 
 
@@ -497,12 +603,28 @@ def get_results():
     sort_by = request.args.get("sort_by", "score")
     sort_order = request.args.get("sort_order", "desc")
     type_filter = request.args.get("type", "all")
+    skip_duplicates = request.args.get("skip_duplicates", "false").lower() == "true"
 
     results = _get_results_list()
 
     # Apply type filter
     if type_filter in ("image", "video", "document"):
         results = [r for r in results if r.get("type") == type_filter]
+
+    # Apply dedup filter
+    duplicates_hidden = 0
+    if skip_duplicates:
+        seen = set()
+        deduped = []
+        for r in results:
+            h = r.get("file_hash")
+            if h:
+                if h in seen:
+                    duplicates_hidden += 1
+                    continue
+                seen.add(h)
+            deduped.append(r)
+        results = deduped
 
     # Sort
     reverse = sort_order.lower() != "asc"
@@ -535,6 +657,7 @@ def get_results():
         "total": total,
         "page": page,
         "pages": pages,
+        "duplicates_hidden": duplicates_hidden,
     })
 
 
@@ -705,6 +828,22 @@ def quarantine_files():
             failed += 1
 
     return jsonify({"moved": moved, "failed": failed, "errors": errors, "quarantine_path": destination})
+
+
+@app.route("/pause", methods=["POST"])
+def pause_scan():
+    set_pause()
+    with _scan_lock:
+        shared_state["paused"] = True
+    return jsonify({"status": "paused"})
+
+
+@app.route("/resume", methods=["POST"])
+def resume_scan():
+    clear_pause()
+    with _scan_lock:
+        shared_state["paused"] = False
+    return jsonify({"status": "resumed"})
 
 
 @app.route("/stop", methods=["POST"])

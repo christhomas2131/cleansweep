@@ -39,12 +39,16 @@ const api = {
     body: JSON.stringify({ folder, threshold, ...opts }),
   }),
   stopScan:    () => api._fetch('/stop', { method: 'POST' }),
+  pauseScan:   () => api._fetch('/pause', { method: 'POST' }),
+  resumeScan:  () => api._fetch('/resume', { method: 'POST' }),
   getProgress: () => api._fetch('/progress'),
+  folderDiff:  (folder) => api._fetch('/folder-diff?folder=' + encodeURIComponent(folder)),
 
-  getResults: (page = 1, perPage = 50, sortBy = 'score', sortOrder = 'desc', type = 'all') =>
-    api._fetch(`/results?page=${page}&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}&type=${type}`),
+  getResults: (page = 1, perPage = 50, sortBy = 'score', sortOrder = 'desc', type = 'all', skipDuplicates = false) =>
+    api._fetch(`/results?page=${page}&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}&type=${type}&skip_duplicates=${skipDuplicates}`),
 
-  getAllResults: () => api._fetch('/results?page=1&per_page=9999&sort_by=score&sort_order=desc'),
+  getAllResults: (skipDuplicates = false) =>
+    api._fetch(`/results?page=1&per_page=9999&sort_by=score&sort_order=desc&skip_duplicates=${skipDuplicates}`),
 
   getThumb:   (idx) => api._fetch(`/thumb/${idx}`),
   filmstrip:  (idx) => api._fetch(`/filmstrip/${idx}`),
