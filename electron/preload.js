@@ -32,4 +32,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   /** Listen for deep-link scan folder (from --scan-folder CLI arg) */
   onScanFolder: (cb) => ipcRenderer.on("scan-folder-cli", (_e, folder) => cb(folder)),
+
+  /** Open a file's containing folder in Explorer with the file selected */
+  openContainingFolder: (filePath) => ipcRenderer.invoke("open-containing-folder", filePath),
 });

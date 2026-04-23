@@ -164,7 +164,12 @@ def _load_image(path):
     """Load a PIL Image from disk, return None on failure."""
     try:
         from PIL import ImageOps
-        img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
+        img = Image.open(path)
+        img = ImageOps.exif_transpose(img)
+        if img.mode != 'RGB':
+            with _scan_lock:
+                shared_state['grayscale_converted'] = shared_state.get('grayscale_converted', 0) + 1
+            img = img.convert('RGB')
         img.thumbnail((512, 512))
         img.load()  # Force load into memory
         return img
@@ -233,6 +238,7 @@ def run_scan(folders=None, threshold=0.5, scan_images=True, scan_videos=True, sc
             "use_gpu": use_gpu,
             "batch_size": batch_size,
             "paused": False,
+            "grayscale_converted": 0,
         })
 
     try:
@@ -704,6 +710,10 @@ def run_scan(folders=None, threshold=0.5, scan_images=True, scan_videos=True, sc
         # Assign indices to final results
         for idx, r in enumerate(full_results):
             r["index"] = idx
+
+        grayscale_count = shared_state.get('grayscale_converted', 0)
+        if grayscale_count > 0:
+            log.info(f"Converted {grayscale_count} non-RGB images to RGB")
 
         with _scan_lock:
             shared_state["results"] = full_results

@@ -310,6 +310,16 @@ function uninstallContextMenu() {
 ipcMain.handle("install-context-menu", () => installContextMenu());
 ipcMain.handle("uninstall-context-menu", () => uninstallContextMenu());
 
+// ── FIX 3: Open containing folder in Explorer ─────────────────────────────────
+ipcMain.handle("open-containing-folder", (_event, filePath) => {
+  try {
+    shell.showItemInFolder(filePath);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 // ── Parse --scan-folder CLI arg ──────────────────────────────────────────────
 function getScanFolderArg() {
   for (const arg of process.argv) {

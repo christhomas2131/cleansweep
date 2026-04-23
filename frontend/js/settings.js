@@ -331,6 +331,7 @@
     document.getElementById('btn-deactivate-license')?.addEventListener('click', () => {
       api.deactivate().then(() => {
         toast('License deactivated.', 'info');
+        window.updateTierBadge?.();
         initSettings();
       }).catch(err => toast('Error: ' + err.message, 'error'));
     });

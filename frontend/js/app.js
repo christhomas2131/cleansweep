@@ -86,9 +86,30 @@ function startConnectionMonitor() {
   }, 5000);
 }
 
+// ── Tier badge ───────────────────────────────────────────────
+async function updateTierBadge() {
+  const badge = document.getElementById('title-tier-badge');
+  if (!badge) return;
+  try {
+    const license = await api.license();
+    const isPro = license && license.tier === 'pro';
+    badge.textContent = isPro ? 'PRO' : 'FREE';
+    badge.className = 'title-tier-badge ' + (isPro ? 'tier-pro' : 'tier-free');
+    badge.title = isPro ? 'Pro member — click for details' : 'Free tier — click to upgrade';
+  } catch {
+    badge.textContent = '';
+    badge.className = 'title-tier-badge';
+  }
+}
+window.updateTierBadge = updateTierBadge;
+
 // ── Wire up title bar ────────────────────────────────────────
 function wireUpTitleBar() {
   document.getElementById('btn-settings-gear')?.addEventListener('click', () => {
+    showScreen('settings');
+  });
+
+  document.getElementById('title-tier-badge')?.addEventListener('click', () => {
     showScreen('settings');
   });
 
@@ -103,7 +124,8 @@ function wireUpTitleBar() {
       window.electronAPI.closeWindow?.()
     );
   } else {
-    // Non-Electron: hide native window buttons
+    // Non-Electron: hide native window buttons, flag for CSS
+    document.documentElement.classList.add('no-electron');
     ['btn-minimize', 'btn-maximize', 'btn-close'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
@@ -137,6 +159,8 @@ async function initApp() {
     appState.connectionLost = true;
     return;
   }
+
+  updateTierBadge();
 
   // Determine start screen based on model and config state
   try {

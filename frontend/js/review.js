@@ -198,6 +198,11 @@
         <div class="card-loading" id="loading-${item.index}"></div>
         <img class="card-thumb" id="thumb-${item.index}" src="" alt="${item.filename || ''}" style="display:none;">
         ${typeClass ? `<div class="type-badge ${typeClass}">${item.type.toUpperCase()}</div>` : ''}
+        <button class="card-open-folder-btn" title="Open containing folder" aria-label="Open containing folder">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 5a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5z"/>
+          </svg>
+        </button>
         <div class="card-check">
           <span class="card-check-mark">✓</span>
         </div>
@@ -208,7 +213,27 @@
       </div>
     `;
 
-    div.addEventListener('click', () => toggleSelect(item.index));
+    // Card click: toggle selection, but ignore clicks on the folder button
+    div.addEventListener('click', (e) => {
+      if (e.target.closest('.card-open-folder-btn')) return;
+      toggleSelect(item.index);
+    });
+
+    // Open containing folder button
+    const folderBtn = div.querySelector('.card-open-folder-btn');
+    if (folderBtn) {
+      folderBtn.dataset.path = item.path || '';
+      folderBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const filePath = folderBtn.dataset.path;
+        if (!filePath || !window.electronAPI?.openContainingFolder) return;
+        try {
+          await window.electronAPI.openContainingFolder(filePath);
+        } catch {
+          toast('Could not open folder', 'error');
+        }
+      });
+    }
 
     // Video filmstrip: show frame timeline on hover for video items
     if (item.type === 'video') {
@@ -625,6 +650,7 @@
           if (res.valid) {
             document.getElementById('modal-license')?.classList.remove('visible');
             toast('License activated! CleanSweep Pro unlocked.', 'success');
+            window.updateTierBadge?.();
           } else {
             if (err) { err.textContent = res.error || 'Invalid license key.'; err.classList.remove('hidden'); }
           }
