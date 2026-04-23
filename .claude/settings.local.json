@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \":*)",
+      "Bash(tasklist)",
+      "Bash(taskkill //F //PID 12672)",
+      "Bash(taskkill //F //IM electron.exe)"
+    ]
+  }
+}

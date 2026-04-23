@@ -1,0 +1,12 @@
+flask
+flask-cors
+transformers
+torch
+pillow
+pymupdf
+python-docx
+python-pptx
+openpyxl
+optimum[onnxruntime]
+onnxruntime
+psutil

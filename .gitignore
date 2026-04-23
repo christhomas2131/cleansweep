@@ -1,0 +1,14 @@
+﻿node_modules/
+__pycache__/
+*.pyc
+*.log
+*.exe
+crash_log.txt
+electron_crash_log.txt
+.cleansweep_results.json
+.cleansweep_progress.json
+dist/
+build/
+*.spec
+.DS_Store
+Thumbs.db

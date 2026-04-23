@@ -1,0 +1,21 @@
+
+🔍 Phase 1 Verification: Backend API
+
+  ✅ backend/server.py exists
+  ✅ backend/scanner.py exists
+  ✅ backend/progress.py exists
+  ✅ backend/requirements.txt exists
+
+  Starting backend...
+  ✅ Backend started successfully
+  ✅ GET /health returns ok (got 200)
+  ✅ GET /preview returns file count (got {'total_images': 10, 'total_size_mb': 0.01})
+  ✅ POST /scan starts scan or reports model-not-downloaded (got 200)
+  ✅ GET /progress returns status: complete
+  ✅ Scan completed (status: complete)
+  ✅ GET /results returns items list
+  ✅ POST /scan rejects invalid folder (got 400)
+
+  Phase 1: 12/12 checks passed
+
+🎉 Phase 1 PASSED — safe to move to phase 2
