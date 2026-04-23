@@ -50,20 +50,22 @@
           <div id="recent-scans-list"></div>
         </div>
 
-        <!-- Folder drop zone -->
+        <!-- Folder drop zone + list -->
         <div>
-          <div class="section-label">Folder to scan</div>
+          <div class="section-label">Folders to scan</div>
           <div id="drop-zone" class="drop-zone">
             <div class="drop-zone-icon">📁</div>
-            <div class="drop-zone-text">Drop a folder here or click to browse</div>
+            <div class="drop-zone-text">Drop a folder here or click to add — scan up to 10 at once</div>
           </div>
           <div class="folder-input-row" style="margin-top:8px;">
-            <input type="text" id="folder-path-input" placeholder="Or paste a folder path...">
-            <button class="btn btn-secondary btn-sm" id="btn-browse">Browse</button>
+            <input type="text" id="folder-path-input" placeholder="Or paste a folder path and press Enter...">
+            <button class="btn btn-secondary btn-sm" id="btn-browse">Add folder</button>
           </div>
+          <div id="folders-list" class="folders-list"></div>
+          <div id="folders-total" class="folders-total" style="display:none;"></div>
         </div>
 
-        <!-- Folder preview -->
+        <!-- Legacy single-folder preview (kept hidden for compat with existing flows) -->
         <div id="folder-preview" class="folder-preview">
           <div class="fp-stat">
             <div class="fp-stat-label">Files</div>
@@ -182,6 +184,7 @@
           </div>
         </div>
         <div class="current-file" id="current-file">Starting scanner...</div>
+        <div class="current-folder" id="current-folder-label"></div>
         <div class="progress-footer">
           <button class="btn btn-ghost" id="btn-pause-scan">⏸ Pause</button>
           <button class="btn btn-ghost" id="btn-stop-scan">Stop Scan</button>

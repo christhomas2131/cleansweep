@@ -181,16 +181,29 @@ def _load_image(path):
         return None
 
 
-def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documents=True,
+def run_scan(folders=None, threshold=0.5, scan_images=True, scan_videos=True, scan_documents=True,
              use_gpu=False, batch_size=4, is_free_tier=False, file_limit=500,
-             only_new_cutoff=None):
+             only_new_cutoff=None, folder=None):
     """
     Main scanning function — runs in a background thread.
+    `folders` is a list of folder paths; `folder` kept for backward-compatibility.
     Updates shared_state throughout.
     """
     global shared_state
     _stop_flag.clear()
     _pause_flag.clear()
+
+    # Backward compat: allow single `folder=` arg
+    if folders is None:
+        folders = [folder] if folder else []
+    folders = [f for f in folders if f]
+    if not folders:
+        with _scan_lock:
+            shared_state["status"] = "error"
+            shared_state["error_message"] = "No folders specified"
+        return
+
+    anchor_folder = folders[0]  # progress/results persistence anchor
 
     with _scan_lock:
         shared_state.update({
@@ -202,9 +215,11 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
             "rate": 0.0,
             "eta_seconds": 0.0,
             "current_file": "",
+            "current_folder": anchor_folder,
             "error_message": None,
             "results": [],
-            "scanned_folder": folder,
+            "scanned_folder": anchor_folder,
+            "scanned_folders": list(folders),
             "threshold": threshold,
             "images_total": 0,
             "images_scanned": 0,
@@ -329,8 +344,19 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
                 )
             return
 
-        # Find files
-        images, videos, documents = find_files(folder, scan_images, scan_videos, scan_documents)
+        # Find files across all folders, skipping unreadable ones with a warning
+        images, videos, documents = [], [], []
+        skipped_folders = []
+        for f in folders:
+            try:
+                fi, fv, fd = find_files(f, scan_images, scan_videos, scan_documents)
+                images.extend(fi)
+                videos.extend(fv)
+                documents.extend(fd)
+            except (PermissionError, OSError) as e:
+                log.warning(f"Skipping folder {f}: {e}")
+                skipped_folders.append({"folder": f, "reason": str(e)})
+                continue
 
         # Apply only_new_cutoff: scan only files modified after the cutoff
         if only_new_cutoff:
@@ -350,9 +376,30 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
             if scan_documents:
                 documents = []
 
-        # Load clean hashes for smart skip
-        clean_hashes = load_clean_hashes(folder)
-        new_clean_hashes = set(clean_hashes)
+        # Load clean hashes for smart skip — per folder, then merge for lookup
+        folder_clean_hashes = {}
+        folder_new_clean_hashes = {}
+        for f in folders:
+            folder_clean_hashes[f] = load_clean_hashes(f)
+            folder_new_clean_hashes[f] = set(folder_clean_hashes[f])
+        # Resolve which folder a path belongs to (longest prefix match wins)
+        _sorted_folders = sorted(folders, key=len, reverse=True)
+        def _owner_folder(path):
+            norm = path.replace("\\", "/")
+            for f in _sorted_folders:
+                fnorm = f.replace("\\", "/").rstrip("/")
+                if norm == fnorm or norm.startswith(fnorm + "/"):
+                    return f
+            return folders[0]
+        def _path_is_clean(path):
+            own = _owner_folder(path)
+            h = compute_quick_hash(path)
+            return h is not None and h in folder_clean_hashes.get(own, set())
+        def _mark_clean(path):
+            own = _owner_folder(path)
+            h = compute_quick_hash(path)
+            if h:
+                folder_new_clean_hashes.setdefault(own, set()).add(h)
 
         total_files = len(images) + len(videos) + len(documents)
 
@@ -462,10 +509,8 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
                         "file_hash": compute_quick_hash(path),
                     })
                 else:
-                    # Track as clean
-                    h = compute_quick_hash(path)
-                    if h:
-                        new_clean_hashes.add(h)
+                    # Track as clean (per source folder)
+                    _mark_clean(path)
 
             # Release PIL images from memory
             for _, img in valid:
@@ -497,8 +542,7 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
                 j = i
                 while j < len(images) and len(batch_paths) < current_batch_size:
                     path = images[j]
-                    quick_hash = compute_quick_hash(path)
-                    if quick_hash and quick_hash in clean_hashes:
+                    if _path_is_clean(path):
                         # Skip this file — already known clean at this threshold
                         scanned_count += 1
                         skipped_count += 1
@@ -512,6 +556,7 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
                 if batch_paths:
                     with _scan_lock:
                         shared_state["current_file"] = f"Scanning image: {os.path.basename(batch_paths[0])}"
+                        shared_state["current_folder"] = _owner_folder(batch_paths[0])
 
                     try:
                         flagged = process_image_batch(batch_paths)
@@ -540,8 +585,9 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
 
                     # Save results + hashes to disk every 25 images; trim in-memory list
                     if scanned_count % 25 == 0:
-                        save_clean_hashes(folder, new_clean_hashes)
-                        _save_results_to_disk(folder, results)
+                        for _f, _h in folder_new_clean_hashes.items():
+                            save_clean_hashes(_f, _h)
+                        _save_results_to_disk(anchor_folder, results)
                         if len(results) > 200:
                             results = results[-200:]
                             log.debug(f"Trimmed in-memory results to 200 (total flagged: {total_flagged_count})")
@@ -585,6 +631,7 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
 
             with _scan_lock:
                 shared_state["current_file"] = f"Scanning video: {os.path.basename(vpath)}"
+                shared_state["current_folder"] = _owner_folder(vpath)
 
             result = scan_video(
                 vpath, classifier, threshold,
@@ -623,6 +670,7 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
 
             with _scan_lock:
                 shared_state["current_file"] = f"Scanning document: {os.path.basename(dpath)}"
+                shared_state["current_folder"] = _owner_folder(dpath)
 
             result = scan_document(
                 dpath, classifier, threshold,
@@ -644,11 +692,12 @@ def run_scan(folder, threshold, scan_images=True, scan_videos=True, scan_documen
 
             update_progress(f"Scanning document: {os.path.basename(dpath)}")
 
-        save_clean_hashes(folder, new_clean_hashes)
+        for _f, _h in folder_new_clean_hashes.items():
+            save_clean_hashes(_f, _h)
 
         # Final flush of results to disk, then load the complete list back
-        _save_results_to_disk(folder, results)
-        full_results = _load_results_from_disk(folder)
+        _save_results_to_disk(anchor_folder, results)
+        full_results = _load_results_from_disk(anchor_folder)
         if not full_results:
             full_results = results
 

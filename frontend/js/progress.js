@@ -72,6 +72,7 @@
     const statsGrid = document.querySelector('.stats-grid');
     if (statsGrid) statsGrid.style.display = active ? 'none' : '';
     hide('current-file');
+    hide('current-folder-label');
   }
 
   function updateProgressUI(p) {
@@ -158,6 +159,24 @@
     if (cf) {
       const filename = p.current_file || '';
       cf.textContent = filename ? 'Scanning: ' + truncate(filename, 70) : '';
+    }
+
+    // Current folder (multi-folder scan awareness)
+    const cfol = document.getElementById('current-folder-label');
+    if (cfol) {
+      const scannedFolders = p.scanned_folders || [];
+      const current = p.current_folder || '';
+      if (scannedFolders.length > 1 && current) {
+        const idx = scannedFolders.findIndex(f =>
+          f && (f.replace(/\\/g, '/').replace(/\/+$/, '') === current.replace(/\\/g, '/').replace(/\/+$/, ''))
+        );
+        const pos = idx >= 0 ? `${idx + 1}/${scannedFolders.length}` : '';
+        cfol.textContent = `📁 Folder ${pos}: ${truncate(current, 60)}`;
+      } else if (scannedFolders.length === 1 || !scannedFolders.length) {
+        cfol.textContent = '';
+      } else {
+        cfol.textContent = `📁 ${scannedFolders.length} folders in this scan`;
+      }
     }
 
     // Limit reached notice

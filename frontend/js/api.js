@@ -32,12 +32,24 @@ const api = {
   deactivate: () => api._fetch('/deactivate', { method: 'POST' }),
 
   previewFolder: (folder) => api._fetch('/preview?folder=' + encodeURIComponent(folder)),
+  previewFolders: (folders) => {
+    const qs = (folders || []).map(f => 'folder=' + encodeURIComponent(f)).join('&');
+    return api._fetch('/preview?' + qs);
+  },
 
-  startScan: (folder, threshold, opts = {}) => api._fetch('/scan', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ folder, threshold, ...opts }),
-  }),
+  startScan: (foldersOrFolder, threshold, opts = {}) => {
+    const body = { threshold, ...opts };
+    if (Array.isArray(foldersOrFolder)) {
+      body.folders = foldersOrFolder;
+    } else {
+      body.folder = foldersOrFolder;
+    }
+    return api._fetch('/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  },
   stopScan:    () => api._fetch('/stop', { method: 'POST' }),
   pauseScan:   () => api._fetch('/pause', { method: 'POST' }),
   resumeScan:  () => api._fetch('/resume', { method: 'POST' }),

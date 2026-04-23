@@ -697,6 +697,67 @@ select:focus-visible {
   color: var(--text-secondary);
 }
 
+/* ── Folder list (multi-folder scan) ──────────────────────── */
+.folders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.folder-entry {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fe-icon { font-size: 18px; flex-shrink: 0; }
+.fe-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fe-path {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fe-meta { font-size: 11px; color: var(--text-muted); }
+.fe-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 2px 10px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.fe-remove:hover { background: var(--danger-subtle); color: var(--danger); }
+.folders-total {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding: 10px 2px 2px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 10px;
+}
+
+/* Current folder during scan */
+.current-folder {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 4px;
+  margin-bottom: 20px;
+  min-height: 16px;
+}
+
 /* ── Recent scans cards (A1) ─────────────────────────────── */
 .recent-scans-section { display: flex; flex-direction: column; gap: 6px; }
 .recent-scan-card {

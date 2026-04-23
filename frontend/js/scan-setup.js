@@ -1,5 +1,7 @@
-// Scan setup screen
+// Scan setup screen — multi-folder aware
 (function () {
+  const MAX_FOLDERS = 10;
+
   let setupInitialized = false;
   let previewDebounce = null;
   let useReset = true;
@@ -7,9 +9,11 @@
   let avgSpeed = 6.0;
   let currentConfig = {};
 
+  // Selected folders: [{path, count, sizeMb, newSinceLast}]
+  let selectedFolders = [];
+
   function initScanSetup() {
     if (setupInitialized) {
-      // Refresh capabilities and reset state on re-entry
       loadCapabilities();
       checkResumeState();
       loadRecentScans();
@@ -29,15 +33,15 @@
     loadDefaultConfig();
     loadRecentScans();
     wireCliScanFolder();
+    renderFoldersList();
   }
 
   function wireCliScanFolder() {
-    // E1 deep-link: --scan-folder arg from context-menu invocation
     if (window.electronAPI?.onScanFolder) {
       window.electronAPI.onScanFolder((folder) => {
         if (folder) {
           showScreen('scan-setup');
-          setFolder(folder);
+          addFolder(folder);
         }
       });
     }
@@ -58,14 +62,13 @@
       if (cfg.avg_speed_imgs_per_sec) {
         avgSpeed = Math.max(1, cfg.avg_speed_imgs_per_sec);
       }
-      // A4: first-scan tooltip
       if (!cfg.first_scan_complete) {
         showThresholdTip();
       }
     }).catch(() => {});
   }
 
-  // ── A4: Onboarding tips ───────────────────────────────────────
+  // ── A4: Onboarding tip ────────────────────────────────────────
   function showThresholdTip() {
     const tip = document.getElementById('onboarding-tip-threshold');
     if (!tip) return;
@@ -92,34 +95,46 @@
         return;
       }
       const top3 = entries.slice(0, 3);
-      list.innerHTML = top3.map(e => `
-        <div class="recent-scan-card" data-folder="${encodeURIComponent(e.folder || '')}" data-id="${e.id}">
-          <div class="rsc-body">
-            <div class="rsc-folder">📁 ${shortFolder(e.folder || '')}</div>
-            <div class="rsc-meta">Scanned ${formatRelative(e.date)} · ${(e.flagged_count || 0).toLocaleString()} flagged</div>
+      list.innerHTML = top3.map(e => {
+        const folders = (e.folders && e.folders.length) ? e.folders : (e.folder ? [e.folder] : []);
+        const label = folders.length > 1
+          ? `📁 ${folders.length} folders`
+          : `📁 ${shortFolder(folders[0] || '')}`;
+        const title = folders.join('\n');
+        const encoded = encodeURIComponent(JSON.stringify(folders));
+        return `
+          <div class="recent-scan-card" data-folders="${encoded}" data-id="${e.id}" title="${escapeAttr(title)}">
+            <div class="rsc-body">
+              <div class="rsc-folder">${label}</div>
+              <div class="rsc-meta">Scanned ${formatRelative(e.date)} · ${(e.flagged_count || 0).toLocaleString()} flagged</div>
+            </div>
+            <button class="rsc-remove" data-rm="${e.id}" title="Remove from history">×</button>
           </div>
-          <button class="rsc-remove" data-rm="${e.id}" title="Remove from history">×</button>
-        </div>
-      `).join('');
+        `;
+      }).join('');
 
-      // Wire card clicks
       list.querySelectorAll('.recent-scan-card').forEach(card => {
         card.addEventListener('click', (ev) => {
           if (ev.target.classList.contains('rsc-remove')) return;
-          const folder = decodeURIComponent(card.dataset.folder || '');
-          if (folder) setFolder(folder);
+          try {
+            const folders = JSON.parse(decodeURIComponent(card.dataset.folders || '[]'));
+            if (folders.length) {
+              // Replace any current selection with the recent-scan folders
+              selectedFolders = [];
+              renderFoldersList();
+              folders.forEach(f => addFolder(f));
+            }
+          } catch {}
         });
       });
 
-      // Wire remove buttons
       list.querySelectorAll('.rsc-remove').forEach(btn => {
         btn.addEventListener('click', (ev) => {
           ev.stopPropagation();
           const id = btn.dataset.rm;
           if (!id) return;
-          api.deleteHistory(id).then(() => {
-            loadRecentScans();
-          }).catch(() => toast('Failed to remove entry.', 'error'));
+          api.deleteHistory(id).then(() => loadRecentScans())
+            .catch(() => toast('Failed to remove entry.', 'error'));
         });
       });
 
@@ -127,6 +142,10 @@
     }).catch(() => {
       section.style.display = 'none';
     });
+  }
+
+  function escapeAttr(s) {
+    return String(s).replace(/"/g, '&quot;');
   }
 
   function shortFolder(p) {
@@ -139,8 +158,7 @@
     try {
       const d = new Date(iso);
       const now = new Date();
-      const diffMs = now - d;
-      const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      const days = Math.floor((now - d) / (1000 * 60 * 60 * 24));
       if (days === 0) return 'Today';
       if (days === 1) return 'Yesterday';
       if (days < 7) return `${days} days ago`;
@@ -154,7 +172,6 @@
     api.capabilities().then(caps => {
       const gpuInfo = document.getElementById('gpu-info');
       const gpuText = document.getElementById('gpu-text');
-      const gpuOpt = document.getElementById('opt-videos');
 
       if (caps.gpu_available && gpuInfo && gpuText) {
         gpuInfo.classList.add('visible');
@@ -163,7 +180,6 @@
           : 'GPU detected — scanning will be faster';
       }
 
-      // Disable video option if ffmpeg not available
       if (!caps.ffmpeg) {
         const vidCheck = document.getElementById('opt-videos');
         if (vidCheck) { vidCheck.checked = false; vidCheck.disabled = true; }
@@ -184,7 +200,7 @@
     zone.addEventListener('click', () => {
       if (window.electronAPI?.selectFolder) {
         window.electronAPI.selectFolder().then(folder => {
-          if (folder) setFolder(folder);
+          if (folder) addFolder(folder);
         }).catch(() => {});
       }
     });
@@ -194,8 +210,11 @@
     zone.addEventListener('drop', e => {
       e.preventDefault();
       zone.classList.remove('drag-over');
-      const file = e.dataTransfer.files[0];
-      if (file && file.path) setFolder(file.path);
+      // Accept multiple folders dropped at once
+      const items = Array.from(e.dataTransfer.files || []);
+      items.forEach(file => {
+        if (file && file.path) addFolder(file.path);
+      });
     });
   }
 
@@ -203,7 +222,7 @@
     document.getElementById('btn-browse')?.addEventListener('click', () => {
       if (window.electronAPI?.selectFolder) {
         window.electronAPI.selectFolder().then(folder => {
-          if (folder) setFolder(folder);
+          if (folder) addFolder(folder);
         }).catch(() => {});
       }
     });
@@ -212,50 +231,146 @@
   function wirePathInput() {
     const input = document.getElementById('folder-path-input');
     if (!input) return;
-    input.addEventListener('input', () => {
-      clearTimeout(previewDebounce);
-      previewDebounce = setTimeout(() => setFolder(input.value.trim()), 600);
+    const submitPath = () => {
+      const v = input.value.trim();
+      if (!v) return;
+      addFolder(v).then(added => { if (added) input.value = ''; });
+    };
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        clearTimeout(previewDebounce);
+        submitPath();
+      }
     });
-    input.addEventListener('change', () => {
-      clearTimeout(previewDebounce);
-      setFolder(input.value.trim());
-    });
+    input.addEventListener('change', submitPath);
   }
 
-  function setFolder(path) {
-    if (!path) return;
-    appState.folder = path;
-    const input = document.getElementById('folder-path-input');
-    if (input) input.value = path;
-    loadPreview(path);
+  // ── Folder list model ─────────────────────────────────────────
+  function normalize(p) {
+    return (p || '').replace(/\\/g, '/').replace(/\/+$/, '');
   }
 
-  function loadPreview(folder) {
+  function hasFolder(p) {
+    const np = normalize(p);
+    return selectedFolders.some(f => normalize(f.path) === np);
+  }
+
+  function syncAppState() {
+    const paths = selectedFolders.map(f => f.path);
+    appState.folders = paths;
+    appState.folder = paths[0] || '';  // backward compat for rest of app
+  }
+
+  async function addFolder(path) {
+    if (!path) return false;
+    if (selectedFolders.length >= MAX_FOLDERS) {
+      toast(`Maximum ${MAX_FOLDERS} folders per scan.`, 'warning');
+      return false;
+    }
+    if (hasFolder(path)) {
+      return false; // silent dedup
+    }
+
+    const entry = { path, count: null, sizeMb: null, loading: true, newSinceLast: 0, hasPriorScan: false };
+    selectedFolders.push(entry);
+    syncAppState();
+    renderFoldersList();
+
+    try {
+      const data = await api.previewFolder(path);
+      entry.count = data.total_images || 0;
+      entry.sizeMb = data.total_size_mb || 0;
+      entry.loading = false;
+    } catch (err) {
+      // Invalid folder — remove silently (or show a toast)
+      toast(`Couldn't read folder: ${shortFolder(path)}`, 'error');
+      const idx = selectedFolders.indexOf(entry);
+      if (idx >= 0) selectedFolders.splice(idx, 1);
+      syncAppState();
+      renderFoldersList();
+      return false;
+    }
+
+    // Per-folder diff — aggregates reflected in the shared banner below
+    api.folderDiff(path).then(diff => {
+      entry.newSinceLast = diff.new_since_last_scan || 0;
+      entry.hasPriorScan = !!diff.has_prior_scan;
+      renderFoldersList();
+      updateNewFilesBanner();
+    }).catch(() => {});
+
+    renderFoldersList();
+    updateNewFilesBanner();
+    checkResumeState();
+    return true;
+  }
+
+  function removeFolder(path) {
+    const np = normalize(path);
+    selectedFolders = selectedFolders.filter(f => normalize(f.path) !== np);
+    syncAppState();
+    renderFoldersList();
+    updateNewFilesBanner();
+  }
+
+  // ── Render folder list + totals ──────────────────────────────
+  function renderFoldersList() {
+    const list = document.getElementById('folders-list');
+    const total = document.getElementById('folders-total');
     const btn = document.getElementById('btn-start-scan');
-    const preview = document.getElementById('folder-preview');
+    const legacyPreview = document.getElementById('folder-preview');
+    if (!list) return;
 
-    api.previewFolder(folder).then(data => {
-      const count = document.getElementById('preview-count');
-      const size = document.getElementById('preview-size');
-      const pathEl = document.getElementById('preview-path');
-      const total = data.total_images || 0;
-      if (count) count.textContent = total.toLocaleString();
-      if (size) size.textContent = formatSize(data.total_size_mb || 0);
-      if (pathEl) pathEl.textContent = folder;
-      if (preview) preview.classList.add('visible');
-      if (btn) btn.disabled = false;
-      showScanEstimate(total);
-      checkResumeState();
-      checkFolderDiff(folder, total);
-    }).catch(() => {
-      if (preview) preview.classList.remove('visible');
+    if (!selectedFolders.length) {
+      list.innerHTML = '';
+      if (total) total.style.display = 'none';
       if (btn) btn.disabled = true;
+      if (legacyPreview) legacyPreview.classList.remove('visible');
       hideScanEstimate();
-      hideNewFilesBanner();
+      return;
+    }
+
+    list.innerHTML = selectedFolders.map((f, idx) => {
+      const countText = f.loading ? 'Reading…'
+        : `${(f.count || 0).toLocaleString()} files · ${formatSize(f.sizeMb || 0)}`;
+      return `
+        <div class="folder-entry" data-idx="${idx}">
+          <div class="fe-icon">📁</div>
+          <div class="fe-body">
+            <div class="fe-path" title="${escapeAttr(f.path)}">${escapeAttr(f.path)}</div>
+            <div class="fe-meta">${countText}</div>
+          </div>
+          <button class="fe-remove" data-remove-idx="${idx}" title="Remove">×</button>
+        </div>
+      `;
+    }).join('');
+
+    list.querySelectorAll('.fe-remove').forEach(btn2 => {
+      btn2.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const idx = parseInt(btn2.dataset.removeIdx, 10);
+        if (!isNaN(idx) && selectedFolders[idx]) {
+          removeFolder(selectedFolders[idx].path);
+        }
+      });
     });
+
+    // Totals
+    const doneFolders = selectedFolders.filter(f => !f.loading);
+    const totalCount = doneFolders.reduce((s, f) => s + (f.count || 0), 0);
+    const totalMb = doneFolders.reduce((s, f) => s + (f.sizeMb || 0), 0);
+    if (total) {
+      total.textContent = `Total: ${selectedFolders.length} folder${selectedFolders.length !== 1 ? 's' : ''} · ${totalCount.toLocaleString()} files · ${formatSize(totalMb)}`;
+      total.style.display = 'block';
+    }
+
+    if (btn) btn.disabled = selectedFolders.some(f => f.loading) || !totalCount;
+    if (legacyPreview) legacyPreview.classList.remove('visible');
+    showScanEstimate(totalCount);
   }
 
-  // ── A3: Scan time estimate ────────────────────────────────────
+  // ── A3: Scan time estimate (total across folders) ────────────
   function showScanEstimate(fileCount) {
     const el = document.getElementById('scan-estimate');
     if (!el) return;
@@ -277,21 +392,22 @@
     return `~${h}h ${m}m`;
   }
 
-  // ── A2: Folder diff banner ────────────────────────────────────
-  function checkFolderDiff(folder, total) {
+  // ── A2: New-files banner (aggregate across folders) ──────────
+  function updateNewFilesBanner() {
     const banner = document.getElementById('new-files-banner');
     if (!banner) return;
-    if (total < 100) { hideNewFilesBanner(); return; }
-    api.folderDiff(folder).then(diff => {
-      const newCount = diff.new_since_last_scan || 0;
-      if (diff.has_prior_scan && newCount > 0) {
-        const txt = document.getElementById('new-files-text');
-        if (txt) txt.textContent = `${newCount.toLocaleString()} new file${newCount !== 1 ? 's' : ''} since your last scan.`;
-        banner.style.display = 'flex';
-      } else {
-        hideNewFilesBanner();
-      }
-    }).catch(() => hideNewFilesBanner());
+
+    const anyPriorScan = selectedFolders.some(f => f.hasPriorScan);
+    const totalNew = selectedFolders.reduce((s, f) => s + (f.newSinceLast || 0), 0);
+    const totalFiles = selectedFolders.reduce((s, f) => s + (f.count || 0), 0);
+
+    if (anyPriorScan && totalNew > 0 && totalFiles >= 100) {
+      const txt = document.getElementById('new-files-text');
+      if (txt) txt.textContent = `${totalNew.toLocaleString()} new file${totalNew !== 1 ? 's' : ''} since your last scan${selectedFolders.length > 1 ? ' of these folders' : ''}.`;
+      banner.style.display = 'flex';
+    } else {
+      hideNewFilesBanner();
+    }
   }
   function hideNewFilesBanner() {
     const banner = document.getElementById('new-files-banner');
@@ -330,7 +446,7 @@
 
   function formatSize(mb) {
     if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
-    return mb.toFixed(1) + ' MB';
+    return (mb || 0).toFixed(1) + ' MB';
   }
 
   // ── Threshold slider ──────────────────────────────────────────
@@ -369,8 +485,8 @@
   }
 
   async function startScan(reset) {
-    const folder = appState.folder;
-    if (!folder) { toast('Please select a folder first.', 'error'); return; }
+    const folders = selectedFolders.map(f => f.path);
+    if (!folders.length) { toast('Please add at least one folder.', 'error'); return; }
 
     const threshold = appState.threshold || 0.5;
     const scanImages = document.getElementById('opt-images')?.checked ?? true;
@@ -379,7 +495,7 @@
     const useGpu = document.getElementById('opt-gpu')?.checked ?? false;
 
     try {
-      await api.startScan(folder, threshold, {
+      await api.startScan(folders, threshold, {
         scan_images: scanImages,
         scan_videos: scanVideos,
         scan_documents: scanDocs,
@@ -414,17 +530,22 @@
         list.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:12px 0;text-align:center;">No scan history yet.</div>';
         return;
       }
-      list.innerHTML = entries.map(e => `
-        <div style="padding:10px 0;border-bottom:1px solid var(--border-subtle);display:flex;gap:10px;align-items:center;">
-          <div style="flex:1;min-width:0;">
-            <div style="font-size:13px;font-weight:500;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.folder}</div>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
-              ${formatDate(e.date)} · ${(e.total_files||0).toLocaleString()} files · ${e.flagged_count||0} flagged · ${formatDuration(e.duration_seconds)}
+      list.innerHTML = entries.map(e => {
+        const folders = (e.folders && e.folders.length) ? e.folders : (e.folder ? [e.folder] : []);
+        const label = folders.length > 1 ? `${folders.length} folders` : (folders[0] || '—');
+        const hover = folders.join('\n');
+        return `
+          <div style="padding:10px 0;border-bottom:1px solid var(--border-subtle);display:flex;gap:10px;align-items:center;" title="${escapeAttr(hover)}">
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;font-weight:500;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeAttr(label)}</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+                ${formatDate(e.date)} · ${(e.total_files||0).toLocaleString()} files · ${e.flagged_count||0} flagged · ${formatDuration(e.duration_seconds)}
+              </div>
             </div>
+            <button class="btn btn-ghost btn-xs" onclick="deleteHistoryEntry('${e.id}', this)">🗑</button>
           </div>
-          <button class="btn btn-ghost btn-xs" onclick="deleteHistoryEntry('${e.id}', this)">🗑</button>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }).catch(() => {
       list.innerHTML = '<div style="color:var(--danger);font-size:13px;padding:8px 0;">Failed to load history.</div>';
     });

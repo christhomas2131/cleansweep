@@ -223,13 +223,18 @@ def is_pro():
 
 
 # ── Scan history helpers ──────────────────────────────────────────────────────
-def save_scan_history(folder, total_files, flagged_count, threshold, types_scanned, duration_seconds):
+def save_scan_history(folders, total_files, flagged_count, threshold, types_scanned, duration_seconds):
+    """Save a scan history entry. folders is always a list."""
+    if isinstance(folders, str):
+        folders = [folders]
+    folders = [f for f in folders if f]
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"scan_{timestamp}.json"
         data = {
             "id": timestamp,
-            "folder": folder,
+            "folders": folders,
+            "folder": folders[0] if folders else "",  # backward compat
             "date": datetime.now().isoformat(),
             "total_files": total_files,
             "flagged_count": flagged_count,
@@ -250,7 +255,12 @@ def load_scan_history():
             if fname.startswith("scan_") and fname.endswith(".json"):
                 try:
                     with open(os.path.join(HISTORY_DIR, fname), "r", encoding="utf-8") as f:
-                        entries.append(json.load(f))
+                        entry = json.load(f)
+                    # Normalize: every entry should have a `folders` array
+                    if not entry.get("folders"):
+                        single = entry.get("folder", "")
+                        entry["folders"] = [single] if single else []
+                    entries.append(entry)
                 except Exception:
                     pass
     except Exception:
@@ -290,36 +300,68 @@ def health():
     return jsonify({"status": "ok"})
 
 
+def _collect_folders_from_args():
+    """Collect folder paths from either ?folder=A&folder=B or ?folders=A,B."""
+    folders = request.args.getlist("folder")
+    combined = request.args.get("folders", "")
+    if combined:
+        folders.extend([f.strip() for f in combined.split(",") if f.strip()])
+    # Dedup preserving order
+    seen, out = set(), []
+    for f in folders:
+        if f and f not in seen:
+            seen.add(f)
+            out.append(f)
+    return out
+
+
 @app.route("/preview", methods=["GET"])
 def preview():
-    folder = request.args.get("folder", "")
-    if not folder or not os.path.isdir(folder):
+    folders = _collect_folders_from_args()
+    if not folders:
         return jsonify({"error": "Invalid or missing folder path"}), 400
 
+    all_extensions = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS | DOCUMENT_EXTENSIONS
     total_images = 0
     total_size_bytes = 0
-    all_extensions = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS | DOCUMENT_EXTENSIONS
+    per_folder = []
+    errors = []
 
-    try:
-        for root, dirs, files in os.walk(folder):
-            dirs[:] = [d for d in dirs if not d.startswith(".")]
-            for fname in files:
-                if fname.startswith("."):
-                    continue
-                ext = os.path.splitext(fname)[1].lower()
-                if ext in all_extensions:
-                    total_images += 1
-                    try:
-                        fpath = os.path.join(root, fname)
-                        total_size_bytes += os.path.getsize(fpath)
-                    except OSError:
-                        pass
-    except PermissionError as e:
-        return jsonify({"error": f"Permission denied: {e}"}), 400
+    for folder in folders:
+        if not os.path.isdir(folder):
+            errors.append({"folder": folder, "reason": "Not a directory"})
+            continue
+        f_count = 0
+        f_size = 0
+        try:
+            for root, dirs, files in os.walk(folder):
+                dirs[:] = [d for d in dirs if not d.startswith(".")]
+                for fname in files:
+                    if fname.startswith("."):
+                        continue
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext in all_extensions:
+                        f_count += 1
+                        try:
+                            f_size += os.path.getsize(os.path.join(root, fname))
+                        except OSError:
+                            pass
+        except PermissionError as e:
+            errors.append({"folder": folder, "reason": str(e)})
+            continue
+        per_folder.append({
+            "folder": folder,
+            "total_images": f_count,
+            "total_size_mb": round(f_size / (1024 * 1024), 2),
+        })
+        total_images += f_count
+        total_size_bytes += f_size
 
     return jsonify({
         "total_images": total_images,
         "total_size_mb": round(total_size_bytes / (1024 * 1024), 2),
+        "per_folder": per_folder,
+        "errors": errors,
     })
 
 
@@ -379,7 +421,30 @@ def start_scan():
     global _scan_thread, _scan_start_time
 
     data = request.get_json(force=True, silent=True) or {}
-    folder = os.path.normpath(data.get("folder", "")).replace("\\", "/")
+
+    # Multi-folder: accept {folders: [...]} or fall back to {folder: "..."}
+    raw_folders = data.get("folders")
+    if not raw_folders:
+        single = data.get("folder", "")
+        raw_folders = [single] if single else []
+    if not isinstance(raw_folders, list):
+        return jsonify({"error": "folders must be a list"}), 400
+
+    # Normalize + dedup preserving order
+    seen, folders = set(), []
+    for f in raw_folders:
+        if not f:
+            continue
+        norm = os.path.normpath(str(f)).replace("\\", "/")
+        if norm and norm not in seen:
+            seen.add(norm)
+            folders.append(norm)
+
+    # Cap at 10 folders
+    MAX_FOLDERS = 10
+    if len(folders) > MAX_FOLDERS:
+        folders = folders[:MAX_FOLDERS]
+
     threshold = data.get("threshold", 0.5)
     scan_images = data.get("scan_images", True)
     scan_videos = data.get("scan_videos", True)
@@ -393,17 +458,33 @@ def start_scan():
     if shared_state.get("status") == "scanning":
         return jsonify({"error": "A scan is already running. Stop it first."}), 409
 
-    # Validate folder
-    if not folder:
-        return jsonify({"error": "Folder path is required"}), 400
-    if not os.path.exists(folder):
-        return jsonify({"error": "Folder not found"}), 400
-    if not os.path.isdir(folder):
-        return jsonify({"error": "Path is not a directory"}), 400
-    try:
-        os.listdir(folder)
-    except PermissionError:
-        return jsonify({"error": "Cannot read folder (permission denied)"}), 400
+    # Validate folders: skip unreadable ones with warnings, fail only if zero remain
+    if not folders:
+        return jsonify({"error": "At least one folder is required"}), 400
+
+    valid_folders = []
+    skipped_folders = []
+    for folder in folders:
+        if not os.path.exists(folder):
+            skipped_folders.append({"folder": folder, "reason": "Not found"})
+            continue
+        if not os.path.isdir(folder):
+            skipped_folders.append({"folder": folder, "reason": "Not a directory"})
+            continue
+        try:
+            os.listdir(folder)
+        except PermissionError:
+            skipped_folders.append({"folder": folder, "reason": "Permission denied"})
+            continue
+        valid_folders.append(folder)
+
+    if not valid_folders:
+        return jsonify({"error": "None of the selected folders are readable",
+                        "skipped": skipped_folders}), 400
+
+    folders = valid_folders
+    # Primary folder for legacy/progress-anchor purposes
+    folder = folders[0]
 
     # Validate threshold
     try:
@@ -434,17 +515,26 @@ def start_scan():
     pro = is_pro()
     is_free_tier = not pro
 
-    # Count total files for the response
-    images, videos, documents = find_files(folder, scan_images, scan_videos and FFMPEG_AVAILABLE, scan_documents)
+    # Count total files across all folders for the response
+    images, videos, documents = [], [], []
+    for f in folders:
+        fi, fv, fd = find_files(f, scan_images, scan_videos and FFMPEG_AVAILABLE, scan_documents)
+        images.extend(fi)
+        videos.extend(fv)
+        documents.extend(fd)
     if is_free_tier:
         videos = []
         documents = []
 
-    # Apply only_new filter if requested
+    # Apply only_new filter if requested — use the most recent matching history entry
     only_new_cutoff = None
     if only_new:
+        folder_set = {os.path.normpath(f) for f in folders}
         for entry in load_scan_history():
-            if os.path.normpath(entry.get("folder", "")) == os.path.normpath(folder):
+            entry_folders = entry.get("folders") or ([entry.get("folder")] if entry.get("folder") else [])
+            entry_norms = {os.path.normpath(x) for x in entry_folders if x}
+            # Match if the history entry covers the same exact set
+            if entry_norms == folder_set:
                 try:
                     only_new_cutoff = datetime.fromisoformat(entry.get("date")).timestamp()
                     break
@@ -468,9 +558,10 @@ def start_scan():
         """Top-level scan thread wrapper. Must never raise."""
         try:
             if reset:
-                clear_progress(folder)
+                for f in folders:
+                    clear_progress(f)
             run_scan(
-                folder=folder,
+                folders=folders,
                 threshold=threshold,
                 scan_images=scan_images,
                 scan_videos=scan_videos and FFMPEG_AVAILABLE,
@@ -512,7 +603,7 @@ def start_scan():
             scanned_n = state.get("scanned", 0)
             flagged_n = state.get("flagged_count", 0)
             save_scan_history(
-                folder=folder,
+                folders=folders,
                 total_files=scanned_n,
                 flagged_count=flagged_n,
                 threshold=threshold,
@@ -575,6 +666,7 @@ def get_progress():
         "rate": state.get("rate", 0.0),
         "eta_seconds": state.get("eta_seconds", 0.0),
         "current_file": state.get("current_file", ""),
+        "current_folder": state.get("current_folder", ""),
         "error_message": state.get("error_message"),
         "images_total": state.get("images_total", 0),
         "images_scanned": state.get("images_scanned", 0),
@@ -585,6 +677,7 @@ def get_progress():
         "skipped_unchanged": state.get("skipped_unchanged", 0),
         "limit_reached": state.get("limit_reached", False),
         "paused": state.get("paused", False),
+        "scanned_folders": state.get("scanned_folders", []),
     })
 
 
@@ -708,18 +801,21 @@ def delete_files():
     failed = 0
     errors = []
 
-    # Get the scanned folder for path traversal check
+    # Get the scanned folders for path traversal check
     with _scan_lock:
-        scanned_folder = shared_state.get("scanned_folder", "")
+        scanned_folders = list(shared_state.get("scanned_folders") or [])
+        if not scanned_folders and shared_state.get("scanned_folder"):
+            scanned_folders = [shared_state.get("scanned_folder")]
+
+    scan_resolved_roots = [os.path.realpath(f) for f in scanned_folders if f]
 
     for path in paths:
         try:
-            # Resolve and check path traversal
+            # Resolve and check path traversal — must be under at least one scanned folder
             resolved = os.path.realpath(path)
-            if scanned_folder:
-                scan_resolved = os.path.realpath(scanned_folder)
-                if not resolved.startswith(scan_resolved):
-                    errors.append({"path": path, "reason": "Path outside scanned folder"})
+            if scan_resolved_roots:
+                if not any(resolved.startswith(root) for root in scan_resolved_roots):
+                    errors.append({"path": path, "reason": "Path outside scanned folders"})
                     failed += 1
                     continue
 
@@ -759,7 +855,10 @@ def quarantine_files():
 
     # Determine destination
     with _scan_lock:
-        scanned_folder = shared_state.get("scanned_folder", "")
+        scanned_folders = list(shared_state.get("scanned_folders") or [])
+        if not scanned_folders and shared_state.get("scanned_folder"):
+            scanned_folders = [shared_state.get("scanned_folder")]
+    scanned_folder = scanned_folders[0] if scanned_folders else ""
 
     if not destination:
         if scanned_folder:
@@ -787,13 +886,14 @@ def quarantine_files():
     failed = 0
     errors = []
 
+    scan_resolved_roots = [os.path.realpath(f) for f in scanned_folders if f]
+
     for path in paths:
         try:
             resolved = os.path.realpath(path)
-            if scanned_folder:
-                scan_resolved = os.path.realpath(scanned_folder)
-                if not resolved.startswith(scan_resolved):
-                    errors.append({"path": path, "reason": "Path outside scanned folder"})
+            if scan_resolved_roots:
+                if not any(resolved.startswith(root) for root in scan_resolved_roots):
+                    errors.append({"path": path, "reason": "Path outside scanned folders"})
                     failed += 1
                     continue
 
@@ -849,14 +949,18 @@ def resume_scan():
 @app.route("/stop", methods=["POST"])
 def stop_scan():
     set_stop()
+    clear_pause()  # don't leave a dangling paused scan
     with _scan_lock:
-        folder = shared_state.get("scanned_folder", "")
+        folders = list(shared_state.get("scanned_folders") or [])
+        if not folders and shared_state.get("scanned_folder"):
+            folders = [shared_state.get("scanned_folder")]
         results = list(shared_state.get("results", []))
         scanned = shared_state.get("scanned", 0)
         total = shared_state.get("total", 0)
         threshold = shared_state.get("threshold", 0.5)
-    if folder:
-        save_progress(folder, scanned, total, threshold, [], results)
+    # Anchor progress file lives in the first folder
+    if folders:
+        save_progress(folders[0], scanned, total, threshold, [], results)
     return jsonify({"status": "stopped"})
 
 
