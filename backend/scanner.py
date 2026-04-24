@@ -170,6 +170,8 @@ def _load_image(path):
             with _scan_lock:
                 shared_state['grayscale_converted'] = shared_state.get('grayscale_converted', 0) + 1
             img = img.convert('RGB')
+        # Strip ICC profile — some profiles cause transformers pipeline failures on macOS Photos exports
+        img.info.pop('icc_profile', None)
         img.thumbnail((512, 512))
         img.load()  # Force load into memory
         return img
@@ -239,6 +241,8 @@ def run_scan(folders=None, threshold=0.5, scan_images=True, scan_videos=True, sc
             "batch_size": batch_size,
             "paused": False,
             "grayscale_converted": 0,
+            "bytes_total": 0,
+            "bytes_processed": 0,
         })
 
     try:
@@ -424,6 +428,16 @@ def run_scan(folders=None, threshold=0.5, scan_images=True, scan_videos=True, sc
             shared_state["videos_total"] = len(videos)
             shared_state["documents_total"] = len(documents)
 
+        # Compute total bytes for DATA stat
+        bytes_total = 0
+        for fpath in images + videos + documents:
+            try:
+                bytes_total += os.path.getsize(fpath)
+            except OSError:
+                pass
+        with _scan_lock:
+            shared_state['bytes_total'] = bytes_total
+
         results = []          # In-memory list, trimmed to ≤200 during scan
         total_flagged_count = 0  # True total, never trimmed
         scanned_count = 0
@@ -472,20 +486,21 @@ def run_scan(folders=None, threshold=0.5, scan_images=True, scan_videos=True, sc
                 batch_results = classifier(imgs, batch_size=current_batch_size)
                 if not isinstance(batch_results[0], list):
                     batch_results = [[r] for r in batch_results]
-            except RuntimeError as e:
-                if "memory" in str(e).lower() or "oom" in str(e).lower():
-                    # Reduce batch size
+            except Exception as e:
+                if isinstance(e, RuntimeError) and ("memory" in str(e).lower() or "oom" in str(e).lower()):
                     current_batch_size = max(1, current_batch_size // 2)
                     log.warning(f"OOM, reducing batch size to {current_batch_size}")
-                    batch_results = []
-                    for img in imgs:
-                        try:
-                            r = classifier(img)
-                            batch_results.append(r)
-                        except Exception:
-                            batch_results.append([{"label": "sfw", "score": 1.0}])
                 else:
-                    raise
+                    log.warning(f"Batch classification failed ({type(e).__name__}: {e}), falling back per-image")
+                # Per-image fallback — a bad image in the batch won't kill the rest
+                batch_results = []
+                for img in imgs:
+                    try:
+                        r = classifier(img)
+                        batch_results.append(r if isinstance(r, list) else [r])
+                    except Exception as per_img_err:
+                        log.warning(f"Per-image classification failed: {type(per_img_err).__name__}: {per_img_err}")
+                        batch_results.append([{"label": "sfw", "score": 1.0}])
 
             flagged = []
             pil_map = dict(zip([p for p, _ in valid], [i for _, i in valid]))
@@ -584,8 +599,17 @@ def run_scan(folders=None, threshold=0.5, scan_images=True, scan_videos=True, sc
                     total_flagged_count += new_count
                     scanned_count += len(batch_paths)
 
+                    _batch_bytes = 0
+                    for fpath in batch_paths:
+                        try:
+                            _batch_bytes += os.path.getsize(fpath)
+                        except OSError:
+                            pass
+
                     with _scan_lock:
                         shared_state["images_scanned"] += len(batch_paths)
+                        if _batch_bytes:
+                            shared_state['bytes_processed'] = shared_state.get('bytes_processed', 0) + _batch_bytes
 
                     update_progress(f"Scanning image: {os.path.basename(batch_paths[-1])}")
 
@@ -646,8 +670,14 @@ def run_scan(folders=None, threshold=0.5, scan_images=True, scan_videos=True, sc
             )
 
             scanned_count += 1
+            try:
+                _vbytes = os.path.getsize(vpath)
+            except OSError:
+                _vbytes = 0
             with _scan_lock:
                 shared_state["videos_scanned"] += 1
+                if _vbytes:
+                    shared_state['bytes_processed'] = shared_state.get('bytes_processed', 0) + _vbytes
 
             if result:
                 # Record hash for dedup
@@ -685,8 +715,14 @@ def run_scan(folders=None, threshold=0.5, scan_images=True, scan_videos=True, sc
             )
 
             scanned_count += 1
+            try:
+                _dbytes = os.path.getsize(dpath)
+            except OSError:
+                _dbytes = 0
             with _scan_lock:
                 shared_state["documents_scanned"] += 1
+                if _dbytes:
+                    shared_state['bytes_processed'] = shared_state.get('bytes_processed', 0) + _dbytes
 
             if result:
                 try:
@@ -712,8 +748,12 @@ def run_scan(folders=None, threshold=0.5, scan_images=True, scan_videos=True, sc
             r["index"] = idx
 
         grayscale_count = shared_state.get('grayscale_converted', 0)
-        if grayscale_count > 0:
-            log.info(f"Converted {grayscale_count} non-RGB images to RGB")
+        log.info("Scan complete. Stats:")
+        log.info(f"  Scanned: {scanned_count}")
+        log.info(f"  Flagged: {total_flagged_count}")
+        log.info(f"  Skipped (unchanged): {skipped_count}")
+        log.info(f"  Skipped (errors): {shared_state.get('skipped_errors', 0)}")
+        log.info(f"  Non-RGB converted: {grayscale_count}")
 
         with _scan_lock:
             shared_state["results"] = full_results

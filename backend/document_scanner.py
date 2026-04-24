@@ -226,6 +226,7 @@ def scan_document(path, classifier, threshold, stop_flag=None, progress_callback
         try:
             from PIL import Image
             doc_img = Image.open(io.BytesIO(img_info["image_bytes"])).convert("RGB")
+            doc_img.info.pop('icc_profile', None)
             results = classifier(doc_img)
 
             score = 0.0
@@ -272,6 +273,7 @@ def scan_document(path, classifier, threshold, stop_flag=None, progress_callback
             from PIL import Image
             import base64
             thumb_img = Image.open(io.BytesIO(image_infos[highest_img_idx]["image_bytes"])).convert("RGB")
+            thumb_img.info.pop('icc_profile', None)
             thumb_img.thumbnail((300, 300))
             buf = io.BytesIO()
             thumb_img.save(buf, format="JPEG", quality=85)

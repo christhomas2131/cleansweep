@@ -678,6 +678,8 @@ def get_progress():
         "limit_reached": state.get("limit_reached", False),
         "paused": state.get("paused", False),
         "scanned_folders": state.get("scanned_folders", []),
+        "bytes_processed": state.get("bytes_processed", 0),
+        "bytes_total": state.get("bytes_total", 0),
     })
 
 

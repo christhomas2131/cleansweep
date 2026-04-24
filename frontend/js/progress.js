@@ -151,6 +151,14 @@
       scannedEl.textContent = `${scanned.toLocaleString()} / ${total.toLocaleString()}${skippedNote}`;
     }
     if (flaggedEl) flaggedEl.textContent = flagged.toLocaleString();
+    const dataEl = document.getElementById('stat-data');
+    if (dataEl) {
+      const bytesTotal = p.bytes_total || 0;
+      const bytesDone = p.bytes_processed || 0;
+      dataEl.textContent = (bytesTotal > 0 && !isLoadingModel)
+        ? formatBytesMatched(bytesDone, bytesTotal)
+        : '— / —';
+    }
     if (speedEl) speedEl.textContent = rate > 0 ? `${rate.toFixed(1)}/s` : '—';
     if (etaEl) etaEl.textContent = eta > 0 ? formatEta(eta) : '—';
 
@@ -302,6 +310,15 @@
     window.electronAPI?.setScanRunning?.(false).catch(() => {});
     window.electronAPI?.setTaskbarProgress?.(-1);
     toast('Scanner error: ' + (p.error_message || 'Unknown error'), 'error', 5000);
+  }
+
+  function formatBytesMatched(done, total) {
+    const GB = 1024 ** 3;
+    const MB = 1024 ** 2;
+    const KB = 1024;
+    if (total >= GB) return `${(done / GB).toFixed(1)} / ${(total / GB).toFixed(1)} GB`;
+    if (total >= MB) return `${Math.round(done / MB)} / ${Math.round(total / MB)} MB`;
+    return `${Math.round(done / KB)} / ${Math.round(total / KB)} KB`;
   }
 
   function formatEta(seconds) {

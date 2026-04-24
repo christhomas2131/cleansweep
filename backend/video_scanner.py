@@ -194,6 +194,7 @@ def scan_video(path, classifier, threshold, stop_flag=None, progress_callback=No
             try:
                 from PIL import Image
                 img = Image.open(frame_path).convert("RGB")
+                img.info.pop('icc_profile', None)
                 results = classifier(img)
                 # Get NSFW score
                 score = 0.0
@@ -237,6 +238,7 @@ def scan_video(path, classifier, threshold, stop_flag=None, progress_callback=No
                 import io
                 import base64
                 thumb_img = Image.open(highest_frame_path).convert("RGB")
+                thumb_img.info.pop('icc_profile', None)
                 thumb_img.thumbnail((300, 300))
                 buf = io.BytesIO()
                 thumb_img.save(buf, format="JPEG", quality=85)

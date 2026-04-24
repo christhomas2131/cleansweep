@@ -896,10 +896,11 @@ select:focus-visible {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 10px;
   margin-bottom: 20px;
 }
+@media (max-width: 800px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 500px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
 .stat-card {
   background: var(--bg-surface-2);
