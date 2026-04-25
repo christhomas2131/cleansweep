@@ -8,8 +8,7 @@
   let currentPage = 1;
   let currentSort = 'score_desc';
   let currentTypeFilter = 'all';
-  let histScoreFilter = null; // null = no filter, or [min, max]
-  let showTopOnly = false;    // C2: "Top 10 Worst" filter
+  let activeFilter = null;  // null = no filter | { type:'hist', min, max, label } | { type:'top10', label }
   let skipDuplicates = false; // C3
   let duplicatesHidden = 0;   // C3
   let reviewInitialized = false;
@@ -23,8 +22,7 @@
     reviewInitialized = true;
     selectedSet.clear();
     currentPage = 1;
-    histScoreFilter = null;
-    showTopOnly = false;
+    activeFilter = null;
 
     // Load config to respect hide_duplicates_default
     try {
@@ -45,6 +43,7 @@
 
     renderGrid();
     renderHistogram();
+    renderFilterPill();
     updateSelectionUI();
     wireReviewToolbar();
     wireModals();
@@ -74,8 +73,6 @@
   }
 
   async function loadAllResults() {
-    // Uses api.getAllResults (a getResults wrapper) to fetch the full results list in one request.
-    // Regular delete via api.deleteFiles is replaced with stage-delete/confirm-delete so Ctrl+Z can undo.
     const data = await api.getAllResults(skipDuplicates);
     allResults = (data.items || []);
     duplicatesHidden = data.duplicates_hidden || 0;
@@ -93,13 +90,44 @@
   function updateReviewHeader(total) {
     const title = document.getElementById('review-title');
     const sub = document.getElementById('review-sub');
-    if (title) title.textContent = `${total.toLocaleString()} item${total !== 1 ? 's' : ''} flagged`;
+    if (title) title.innerHTML = `<span class="review-count">${total.toLocaleString()}</span> item${total !== 1 ? 's' : ''} flagged`;
     if (sub) {
       try {
         const prog = JSON.parse(sessionStorage.getItem('lastScanTotal') || '{}');
         if (prog.total) sub.textContent = `Scanned ${prog.total.toLocaleString()} files`;
       } catch { sub.textContent = ''; }
     }
+  }
+
+  // ── Filter pill ───────────────────────────────────────────────
+  function renderFilterPill() {
+    const bar = document.getElementById('filter-status');
+    if (!bar) return;
+    if (!activeFilter) {
+      bar.classList.remove('visible');
+      return;
+    }
+    const typeItems = currentTypeFilter === 'all'
+      ? allResults
+      : allResults.filter(r => r.type === currentTypeFilter);
+    const total = typeItems.length;
+    const filtered = getFilteredResults().length;
+    const text = document.getElementById('filter-status-text');
+    const label = document.getElementById('filter-pill-label');
+    if (text) text.textContent = `Showing ${filtered.toLocaleString()} of ${total.toLocaleString()} items`;
+    if (label) label.textContent = activeFilter.label;
+    bar.classList.add('visible');
+  }
+
+  function clearFilter() {
+    activeFilter = null;
+    renderFilterPill();
+    document.querySelectorAll('.hist-col').forEach(c => c.style.opacity = '');
+    const worstBtn = document.getElementById('qs-worst');
+    if (worstBtn) { worstBtn.classList.remove('active'); worstBtn.textContent = 'Top 10 worst'; }
+    currentPage = 1;
+    renderGrid();
+    updateSelectionUI();
   }
 
   // ── Filtering and sorting helpers ─────────────────────────────
@@ -111,9 +139,14 @@
       items = items.filter(r => r.type === currentTypeFilter);
     }
 
-    // Histogram score band filter
-    if (histScoreFilter) {
-      items = items.filter(r => r.score >= histScoreFilter[0] && r.score < histScoreFilter[1]);
+    // Active filter (histogram band or top 10)
+    if (activeFilter) {
+      if (activeFilter.type === 'hist') {
+        items = items.filter(r => r.score >= activeFilter.min && r.score < activeFilter.max);
+      } else if (activeFilter.type === 'top10') {
+        items = [...items].sort((a, b) => b.score - a.score).slice(0, 10);
+        return items; // top10 already sorted, skip sort below
+      }
     }
 
     // Sort
@@ -126,11 +159,6 @@
         : (b.filename || '').localeCompare(a.filename || '');
       return 0;
     });
-
-    // C2: Top 10 Worst — override sort to descending score, take top 10
-    if (showTopOnly) {
-      items = [...items].sort((a, b) => b.score - a.score).slice(0, 10);
-    }
 
     return items;
   }
@@ -252,7 +280,7 @@
 
   function renderEmptyState() {
     // Pull scan stats for celebration
-    let scanned = 0, durationStr = '';
+    let scanned = 0;
     try {
       const stored = JSON.parse(sessionStorage.getItem('lastScanTotal') || '{}');
       scanned = stored.total || stored.scanned || 0;
@@ -356,11 +384,11 @@
     if (!container) return;
 
     const bands = [
-      { min: 0.5, max: 0.6, label: '50–60%', color: '#facc15' },
-      { min: 0.6, max: 0.7, label: '60–70%', color: '#fb923c' },
-      { min: 0.7, max: 0.8, label: '70–80%', color: '#f97316' },
-      { min: 0.8, max: 0.9, label: '80–90%', color: '#ef4444' },
-      { min: 0.9, max: 1.01, label: '90–100%', color: '#dc2626' },
+      { min: 0.5, max: 0.6,  label: '50–60%',   cls: '' },
+      { min: 0.6, max: 0.7,  label: '60–70%',   cls: '' },
+      { min: 0.7, max: 0.8,  label: '70–80%',   cls: 'hist-bar--warning-dim' },
+      { min: 0.8, max: 0.9,  label: '80–90%',   cls: 'hist-bar--warning' },
+      { min: 0.9, max: 1.01, label: '90–100%',  cls: 'hist-bar--danger' },
     ];
 
     const counts = bands.map(b => ({
@@ -370,28 +398,37 @@
     const maxCount = Math.max(...counts.map(c => c.count), 1);
 
     container.innerHTML = counts.map(b => `
-      <div class="hist-col" data-min="${b.min}" data-max="${b.max}" title="Click to filter: ${b.label}">
+      <div class="hist-col" data-min="${b.min}" data-max="${b.max}" data-label="${b.label}" title="Click to filter: ${b.label}">
         <div class="hist-count">${b.count}</div>
-        <div class="hist-bar" style="height:${Math.round((b.count / maxCount) * 44)}px;background:${b.color};"></div>
+        <div class="hist-bar ${b.cls}" style="height:${Math.round((b.count / maxCount) * 44)}px;"></div>
         <div class="hist-bar-label">${b.label}</div>
       </div>
     `).join('');
+
+    // Restore selected state if a hist filter is active
+    if (activeFilter && activeFilter.type === 'hist') {
+      container.querySelectorAll('.hist-col').forEach(c => {
+        const min = parseFloat(c.dataset.min);
+        c.style.opacity = (min === activeFilter.min) ? '1' : '0.4';
+      });
+    }
 
     container.querySelectorAll('.hist-col').forEach(col => {
       col.addEventListener('click', () => {
         const min = parseFloat(col.dataset.min);
         const max = parseFloat(col.dataset.max);
-        if (histScoreFilter && histScoreFilter[0] === min) {
-          histScoreFilter = null;
-          col.style.opacity = '';
-          container.querySelectorAll('.hist-col').forEach(c => c.style.opacity = '');
+        const label = col.dataset.label;
+        if (activeFilter && activeFilter.type === 'hist' && activeFilter.min === min) {
+          clearFilter();
         } else {
-          histScoreFilter = [min, max];
+          activeFilter = { type: 'hist', min, max, label };
           container.querySelectorAll('.hist-col').forEach(c => c.style.opacity = '0.4');
           col.style.opacity = '1';
+          currentPage = 1;
+          renderGrid();
+          renderFilterPill();
+          updateSelectionUI();
         }
-        currentPage = 1;
-        renderGrid();
       });
     });
 
@@ -491,14 +528,19 @@
 
     // C2: Top 10 Worst
     document.getElementById('qs-worst')?.addEventListener('click', () => {
-      showTopOnly = !showTopOnly;
-      const btn = document.getElementById('qs-worst');
-      if (btn) {
-        btn.classList.toggle('active', showTopOnly);
-        btn.textContent = showTopOnly ? 'Showing top 10 worst' : 'Top 10 worst';
+      if (activeFilter && activeFilter.type === 'top10') {
+        clearFilter();
+      } else {
+        activeFilter = { type: 'top10', label: 'Top 10 worst' };
+        // Reset histogram column opacity if switching from a hist filter
+        document.querySelectorAll('.hist-col').forEach(c => c.style.opacity = '');
+        const btn = document.getElementById('qs-worst');
+        if (btn) { btn.classList.add('active'); btn.textContent = 'Showing top 10 worst'; }
+        currentPage = 1;
+        renderGrid();
+        renderFilterPill();
+        updateSelectionUI();
       }
-      currentPage = 1;
-      renderGrid();
     });
 
     // C3: Skip duplicates
@@ -511,8 +553,12 @@
       currentPage = 1;
       renderGrid();
       renderHistogram();
+      renderFilterPill();
       updateSelectionUI();
     });
+
+    // Filter pill clear button
+    document.getElementById('filter-pill-clear')?.addEventListener('click', clearFilter);
 
     wireQuickSelect();
   }
@@ -525,7 +571,11 @@
         tab.classList.add('active');
         currentTypeFilter = tab.dataset.type || 'all';
         currentPage = 1;
-        histScoreFilter = null;
+        activeFilter = null;
+        document.querySelectorAll('.hist-col').forEach(c => c.style.opacity = '');
+        const worstBtn = document.getElementById('qs-worst');
+        if (worstBtn) { worstBtn.classList.remove('active'); worstBtn.textContent = 'Top 10 worst'; }
+        renderFilterPill();
         renderGrid();
       });
     });
@@ -597,6 +647,7 @@
           pendingDeletePaths = [];
           renderGrid();
           renderHistogram();
+          renderFilterPill();
           updateSelectionUI();
           // Auto-confirm (purge staged files) after 30 seconds
           setTimeout(() => {
@@ -629,6 +680,7 @@
           pendingQuarantinePaths = [];
           renderGrid();
           renderHistogram();
+          renderFilterPill();
           updateSelectionUI();
         } catch (err) {
           toast('Quarantine failed: ' + err.message, 'error');
@@ -694,6 +746,7 @@
                 await loadAllResults();
                 renderGrid();
                 renderHistogram();
+                renderFilterPill();
                 updateSelectionUI();
               } catch {}
             }).catch(() => {

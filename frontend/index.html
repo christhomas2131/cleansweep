@@ -171,7 +171,7 @@
           </div>
           <div class="stat-card">
             <div class="stat-label">Flagged</div>
-            <div class="stat-value danger" id="stat-flagged">0</div>
+            <div class="stat-value stat-value-danger" id="stat-flagged">0</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Data</div>
@@ -252,6 +252,15 @@
       <button class="type-tab" data-type="video">Videos</button>
       <button class="type-tab" data-type="document">Documents</button>
       <button class="btn btn-ghost btn-sm" id="btn-new-scan" style="margin-left:auto;">New scan</button>
+    </div>
+
+    <!-- Filter status bar (shown when a filter is active) -->
+    <div class="filter-status" id="filter-status">
+      <span class="filter-status-text" id="filter-status-text"></span>
+      <div class="filter-pill" id="filter-pill">
+        <span id="filter-pill-label"></span>
+        <button class="filter-pill-x" id="filter-pill-clear" aria-label="Clear filter">×</button>
+      </div>
     </div>
 
     <!-- Grid body -->

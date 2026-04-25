@@ -11,7 +11,7 @@ const appState = {
 // ── Screen routing ───────────────────────────────────────────
 function showScreen(name) {
   const prev = appState.currentScreen;
-  if (prev && prev !== name) appState.prevScreen = prev;
+  if (prev && prev !== name && prev !== 'settings') appState.prevScreen = prev;
 
   document.querySelectorAll('.screen').forEach(s => {
     s.classList.remove('active');
