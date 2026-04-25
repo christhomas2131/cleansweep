@@ -27,7 +27,7 @@
 
 <!-- ── Connection lost banner ─────────────────────────────── -->
 <div id="connection-banner" class="hidden">
-  ⚠ Reconnecting to scanner engine...
+  Reconnecting to scanner engine…
 </div>
 
 <!-- ── Main app ───────────────────────────────────────────── -->
@@ -38,7 +38,7 @@
 
   <!-- Scan setup -->
   <div id="scan-setup" class="screen hidden">
-    <div style="overflow-y:auto;flex:1;display:flex;flex-direction:column;align-items:center;padding:40px 24px;">
+    <div class="screen-scroll">
       <div class="setup-header">
         <div class="setup-title">CleanSweep</div>
         <div class="setup-subtitle">Find and remove sensitive content from your files — privately, on your machine.</div>
@@ -55,10 +55,9 @@
         <div>
           <div class="section-label">Folders to scan</div>
           <div id="drop-zone" class="drop-zone">
-            <div class="drop-zone-icon">📁</div>
-            <div class="drop-zone-text">Drop a folder here or click to add — scan up to 10 at once</div>
+            <div class="drop-zone-text">Drop a folder here or click to add — up to 10 at once</div>
           </div>
-          <div class="folder-input-row" style="margin-top:8px;">
+          <div class="folder-input-row">
             <input type="text" id="folder-path-input" placeholder="Or paste a folder path and press Enter...">
             <button class="btn btn-secondary btn-sm" id="btn-browse">Add folder</button>
           </div>
@@ -84,10 +83,9 @@
 
         <!-- New files banner (A2) -->
         <div id="new-files-banner" class="new-files-banner" style="display:none;">
-          <div class="nfb-icon">📂</div>
           <div class="nfb-text" id="new-files-text">0 new files since your last scan.</div>
           <div class="nfb-actions">
-            <button class="btn btn-primary btn-sm" id="btn-scan-only-new">Scan only new</button>
+            <button class="btn btn-secondary btn-sm" id="btn-scan-only-new">Scan only new</button>
             <button class="btn btn-ghost btn-sm" id="btn-scan-all">Scan all</button>
           </div>
         </div>
@@ -96,8 +94,8 @@
         <div id="resume-banner" class="resume-banner">
           <div class="resume-banner-text" id="resume-text">Previous scan found. Resume or start fresh?</div>
           <div class="resume-banner-actions">
-            <button class="btn btn-primary btn-sm" id="btn-resume">Resume</button>
-            <button class="btn btn-secondary btn-sm" id="btn-fresh">Start Fresh</button>
+            <button class="btn btn-secondary btn-sm" id="btn-resume">Resume</button>
+            <button class="btn btn-ghost btn-sm" id="btn-fresh">Start fresh</button>
           </div>
         </div>
 
@@ -111,14 +109,14 @@
             <span>More strict (fewer false positives)</span>
           </div>
           <div id="onboarding-tip-threshold" class="onboarding-tip" style="display:none;">
-            💡 Lower = catches more potential matches. Higher = fewer false positives. 50% is a good starting point.
+            Lower catches more potential matches. Higher reduces false positives. 50% is a good starting point.
           </div>
         </div>
 
         <!-- Scan options -->
         <div>
           <div class="section-label">What to scan</div>
-          <div class="options-row" style="margin-top:8px;">
+          <div class="options-row">
             <label class="option-check">
               <input type="checkbox" id="opt-images" checked> Images
             </label>
@@ -143,9 +141,9 @@
         <!-- Footer actions -->
         <div class="setup-footer">
           <div class="setup-footer-left">
-            <button class="btn btn-ghost btn-sm" id="btn-history">📋 History</button>
+            <button class="btn btn-ghost btn-sm" id="btn-history">History</button>
           </div>
-          <button class="btn btn-primary" id="btn-start-scan" disabled>Start Scan</button>
+          <button class="btn btn-primary" id="btn-start-scan" disabled>Start scan</button>
         </div>
       </div>
     </div>
@@ -153,11 +151,11 @@
 
   <!-- Scan progress -->
   <div id="scan-progress" class="screen hidden">
-    <div style="display:flex;align-items:center;justify-content:center;flex:1;overflow-y:auto;padding:48px;">
+    <div class="screen-scroll screen-scroll-center">
       <div class="progress-card">
         <div class="progress-header">
           <div id="progress-dot" class="progress-dot"></div>
-          <div class="progress-status-label" id="progress-status-label">Scanning...</div>
+          <div class="progress-status-label" id="progress-status-label">Scanning</div>
         </div>
         <div class="progress-percent" id="progress-percent">0%</div>
         <div class="progress-bar-section">
@@ -191,9 +189,9 @@
         <div class="current-file" id="current-file">Starting scanner...</div>
         <div class="current-folder" id="current-folder-label"></div>
         <div class="progress-footer">
-          <button class="btn btn-ghost" id="btn-pause-scan">⏸ Pause</button>
-          <button class="btn btn-ghost" id="btn-stop-scan">Stop Scan</button>
-          <button class="btn btn-primary hidden" id="btn-review-from-progress">Review Results</button>
+          <button class="btn btn-ghost" id="btn-pause-scan">Pause</button>
+          <button class="btn btn-ghost" id="btn-stop-scan">Stop</button>
+          <button class="btn btn-primary hidden" id="btn-review-from-progress">Review results</button>
         </div>
       </div>
     </div>
@@ -204,40 +202,40 @@
     <!-- Toolbar -->
     <div class="review-toolbar">
       <div class="review-info">
-        <div class="review-title" id="review-title">Flagged Items</div>
+        <div class="review-title" id="review-title">Flagged items</div>
         <div class="review-sub" id="review-sub"></div>
       </div>
       <div class="unblur-toggle" id="unblur-toggle">
         <div class="unblur-dot"></div>
-        <span>Unblur All</span>
+        <span>Unblur all</span>
       </div>
-      <select id="sort-select" class="btn btn-ghost btn-sm" style="width:auto;padding:5px 28px 5px 10px;">
+      <select id="sort-select" class="review-select">
         <option value="score_desc">Confidence ↓</option>
         <option value="score_asc">Confidence ↑</option>
         <option value="filename_asc">Filename A–Z</option>
         <option value="filename_desc">Filename Z–A</option>
       </select>
-      <button class="btn btn-ghost btn-sm" id="btn-select-page">Select Page</button>
-      <button class="btn btn-ghost btn-sm" id="btn-select-all">Select All</button>
-      <button class="btn btn-ghost btn-sm" id="btn-deselect-all">Deselect All</button>
+      <button class="btn btn-ghost btn-sm" id="btn-select-page">Select page</button>
+      <button class="btn btn-ghost btn-sm" id="btn-select-all">Select all</button>
+      <button class="btn btn-ghost btn-sm" id="btn-deselect-all">Deselect</button>
       <button class="btn btn-warning btn-sm" id="btn-quarantine-sel" disabled>Quarantine</button>
       <button class="btn btn-danger btn-sm" id="btn-delete-sel" disabled>Delete</button>
-      <button class="btn btn-ghost btn-sm" id="btn-export">📥 Export</button>
+      <button class="btn btn-ghost btn-sm" id="btn-export">Export</button>
       <span class="select-info" id="select-info"></span>
     </div>
 
     <!-- Quick-select bar -->
     <div class="quick-select-bar">
-      <span class="qs-label">Quick select:</span>
+      <span class="qs-label">Quick select</span>
       <button class="qs-btn" id="qs-90">90%+</button>
       <button class="qs-btn" id="qs-80">80%+</button>
       <button class="qs-btn" id="qs-70">70%+</button>
-      <button class="qs-btn qs-worst" id="qs-worst">🚨 Top 10 Worst</button>
-      <label class="option-check" style="margin-left:12px;font-size:12px;">
+      <button class="qs-btn qs-worst" id="qs-worst">Top 10 worst</button>
+      <label class="option-check qs-skip-dup">
         <input type="checkbox" id="opt-skip-duplicates"> Skip duplicates
         <span id="dup-count-text" class="dup-count-text"></span>
       </label>
-      <button class="histogram-toggle" id="histogram-toggle">📊 Distribution</button>
+      <button class="histogram-toggle" id="histogram-toggle">Distribution</button>
     </div>
 
     <!-- Histogram panel (C1) -->
@@ -253,7 +251,7 @@
       <button class="type-tab" data-type="image">Images</button>
       <button class="type-tab" data-type="video">Videos</button>
       <button class="type-tab" data-type="document">Documents</button>
-      <button class="btn btn-ghost btn-sm" id="btn-new-scan" style="margin-left:auto;">← New Scan</button>
+      <button class="btn btn-ghost btn-sm" id="btn-new-scan" style="margin-left:auto;">New scan</button>
     </div>
 
     <!-- Grid body -->
@@ -263,9 +261,9 @@
 
     <!-- Pagination -->
     <div class="pagination" id="pagination">
-      <button class="btn btn-ghost btn-sm" id="btn-prev-page">← Prev</button>
+      <button class="btn btn-ghost btn-sm" id="btn-prev-page">Previous</button>
       <span class="page-text" id="page-text">Page 1 of 1</span>
-      <button class="btn btn-ghost btn-sm" id="btn-next-page">Next →</button>
+      <button class="btn btn-ghost btn-sm" id="btn-next-page">Next</button>
     </div>
   </div>
 
@@ -287,7 +285,7 @@
     <div class="modal-file-list" id="delete-file-list"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" id="btn-delete-cancel">Cancel</button>
-      <button class="btn btn-danger" id="btn-delete-confirm">Yes, Delete</button>
+      <button class="btn btn-danger" id="btn-delete-confirm">Delete</button>
     </div>
   </div>
 </div>
@@ -300,7 +298,7 @@
     <div class="modal-file-list" id="quarantine-file-list"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" id="btn-quarantine-cancel">Cancel</button>
-      <button class="btn btn-warning" id="btn-quarantine-confirm">Move to Quarantine</button>
+      <button class="btn btn-warning" id="btn-quarantine-confirm">Move to quarantine</button>
     </div>
   </div>
 </div>
@@ -311,8 +309,8 @@
     <div class="modal-title">Stop scanning?</div>
     <div class="modal-body">Progress is saved automatically. You can resume this scan later.</div>
     <div class="modal-actions">
-      <button class="btn btn-secondary" id="btn-stop-cancel">Keep Scanning</button>
-      <button class="btn btn-warning" id="btn-stop-review" style="display:none;">Stop &amp; Review Results</button>
+      <button class="btn btn-secondary" id="btn-stop-cancel">Keep scanning</button>
+      <button class="btn btn-warning" id="btn-stop-review" style="display:none;">Stop &amp; review</button>
       <button class="btn btn-ghost" id="btn-stop-confirm">Stop</button>
     </div>
   </div>
@@ -321,13 +319,13 @@
 <!-- License activation -->
 <div id="modal-license" class="modal">
   <div class="modal-card">
-    <div class="modal-title">Activate License</div>
+    <div class="modal-title">Activate license</div>
     <div class="modal-body">Enter your CleanSweep Pro license key to unlock unlimited scanning.</div>
-    <div class="form-group" style="margin-bottom:16px;">
-      <label for="license-key-input">License Key</label>
+    <div class="form-group modal-form-group">
+      <label for="license-key-input">License key</label>
       <input type="text" id="license-key-input" placeholder="CSWEEP-XXXX-XXXX-XXXX-XXXX">
     </div>
-    <div id="license-error" class="hidden" style="font-size:12px;color:var(--danger);margin-bottom:12px;"></div>
+    <div id="license-error" class="hidden modal-form-error"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" id="btn-license-cancel">Cancel</button>
       <button class="btn btn-primary" id="btn-license-activate">Activate</button>
@@ -337,9 +335,9 @@
 
 <!-- Scan history -->
 <div id="modal-history" class="modal">
-  <div class="modal-card" style="max-width:560px;">
-    <div class="modal-title">Scan History</div>
-    <div id="history-list" style="max-height:320px;overflow-y:auto;margin:12px 0;"></div>
+  <div class="modal-card modal-card-wide">
+    <div class="modal-title">Scan history</div>
+    <div id="history-list" class="history-list"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" id="btn-history-close">Close</button>
     </div>

@@ -98,8 +98,8 @@
       list.innerHTML = top3.map(e => {
         const folders = (e.folders && e.folders.length) ? e.folders : (e.folder ? [e.folder] : []);
         const label = folders.length > 1
-          ? `📁 ${folders.length} folders`
-          : `📁 ${shortFolder(folders[0] || '')}`;
+          ? `${folders.length} folders`
+          : shortFolder(folders[0] || '');
         const title = folders.join('\n');
         const encoded = encodeURIComponent(JSON.stringify(folders));
         return `
@@ -336,7 +336,6 @@
         : `${(f.count || 0).toLocaleString()} files · ${formatSize(f.sizeMb || 0)}`;
       return `
         <div class="folder-entry" data-idx="${idx}">
-          <div class="fe-icon">📁</div>
           <div class="fe-body">
             <div class="fe-path" title="${escapeAttr(f.path)}">${escapeAttr(f.path)}</div>
             <div class="fe-meta">${countText}</div>
@@ -376,7 +375,7 @@
     if (!el) return;
     if (!fileCount) { el.style.display = 'none'; return; }
     const rate = Math.max(1, avgSpeed);
-    el.innerHTML = `⏱ Estimated scan time: ${formatEstimate(fileCount, rate)} (${fileCount.toLocaleString()} files at ~${rate.toFixed(1)}/s)`;
+    el.innerHTML = `Estimated scan time: ${formatEstimate(fileCount, rate)} (${fileCount.toLocaleString()} files at ~${rate.toFixed(1)}/s)`;
     el.style.display = 'block';
   }
   function hideScanEstimate() {
@@ -522,12 +521,12 @@
     const modal = document.getElementById('modal-history');
     const list = document.getElementById('history-list');
     if (!modal || !list) return;
-    list.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">Loading...</div>';
+    list.innerHTML = '<div class="history-empty">Loading…</div>';
     modal.classList.add('visible');
 
     api.history().then(entries => {
       if (!entries.length) {
-        list.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:12px 0;text-align:center;">No scan history yet.</div>';
+        list.innerHTML = '<div class="history-empty history-empty-centered">No scan history yet.</div>';
         return;
       }
       list.innerHTML = entries.map(e => {
@@ -535,19 +534,22 @@
         const label = folders.length > 1 ? `${folders.length} folders` : (folders[0] || '—');
         const hover = folders.join('\n');
         return `
-          <div style="padding:10px 0;border-bottom:1px solid var(--border-subtle);display:flex;gap:10px;align-items:center;" title="${escapeAttr(hover)}">
-            <div style="flex:1;min-width:0;">
-              <div style="font-size:13px;font-weight:500;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeAttr(label)}</div>
-              <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+          <div class="history-entry" title="${escapeAttr(hover)}">
+            <div class="history-entry-body">
+              <div class="history-entry-label">${escapeAttr(label)}</div>
+              <div class="history-entry-meta">
                 ${formatDate(e.date)} · ${(e.total_files||0).toLocaleString()} files · ${e.flagged_count||0} flagged · ${formatDuration(e.duration_seconds)}
               </div>
             </div>
-            <button class="btn btn-ghost btn-xs" onclick="deleteHistoryEntry('${e.id}', this)">🗑</button>
+            <button class="btn btn-ghost btn-xs history-entry-remove" data-id="${e.id}">Remove</button>
           </div>
         `;
       }).join('');
+      list.querySelectorAll('.history-entry-remove').forEach(btn => {
+        btn.addEventListener('click', () => deleteHistoryEntry(btn.dataset.id, btn));
+      });
     }).catch(() => {
-      list.innerHTML = '<div style="color:var(--danger);font-size:13px;padding:8px 0;">Failed to load history.</div>';
+      list.innerHTML = '<div class="history-empty history-empty-error">Failed to load history.</div>';
     });
   }
 
@@ -560,13 +562,15 @@
     return `${Math.floor(s/60)}m ${Math.round(s%60)}s`;
   }
 
-  window.deleteHistoryEntry = function(id, btn) {
-    btn.textContent = '...';
+  function deleteHistoryEntry(id, btn) {
+    const original = btn.textContent;
+    btn.textContent = '…';
     btn.disabled = true;
     api.deleteHistory(id).then(() => {
-      btn.closest('div[style]')?.remove();
-    }).catch(() => { btn.textContent = '🗑'; btn.disabled = false; });
-  };
+      btn.closest('.history-entry')?.remove();
+    }).catch(() => { btn.textContent = original; btn.disabled = false; });
+  }
+  window.deleteHistoryEntry = deleteHistoryEntry;
 
   window.initScanSetup = initScanSetup;
 })();

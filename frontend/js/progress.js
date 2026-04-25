@@ -49,8 +49,8 @@
       banner.innerHTML = `
         <div class="loading-model-spinner"></div>
         <div class="loading-model-text">
-          <div class="loading-model-title">Loading AI model…</div>
-          <div class="loading-model-sub">This takes 30–60 seconds the first time</div>
+          <div class="loading-model-title">Loading AI model</div>
+          <div class="loading-model-sub">Takes 30–60 seconds the first time</div>
         </div>`;
       const pctEl = document.getElementById('progress-percent');
       if (pctEl) pctEl.parentNode.insertBefore(banner, pctEl);
@@ -110,13 +110,13 @@
       else if (status === 'error') dot.classList.add('error');
     }
     if (label) {
-      if (status === 'loading_model') label.textContent = 'Loading AI model...';
+      if (status === 'loading_model') label.textContent = 'Loading AI model';
       else if (status === 'scanning' && isPaused) label.textContent = `Paused at ${pct}%`;
-      else if (status === 'scanning') label.textContent = 'Scanning...';
+      else if (status === 'scanning') label.textContent = 'Scanning';
       else if (status === 'complete') label.textContent = 'Scan complete';
       else if (status === 'stopped') label.textContent = 'Scan stopped';
       else if (status === 'error') label.textContent = 'Error';
-      else label.textContent = 'Scanning...';
+      else label.textContent = 'Scanning';
     }
 
     // Title bar reflects paused state
@@ -179,11 +179,11 @@
           f && (f.replace(/\\/g, '/').replace(/\/+$/, '') === current.replace(/\\/g, '/').replace(/\/+$/, ''))
         );
         const pos = idx >= 0 ? `${idx + 1}/${scannedFolders.length}` : '';
-        cfol.textContent = `📁 Folder ${pos}: ${truncate(current, 60)}`;
+        cfol.textContent = `Folder ${pos} — ${truncate(current, 60)}`;
       } else if (scannedFolders.length === 1 || !scannedFolders.length) {
         cfol.textContent = '';
       } else {
-        cfol.textContent = `📁 ${scannedFolders.length} folders in this scan`;
+        cfol.textContent = `${scannedFolders.length} folders in this scan`;
       }
     }
 
@@ -271,9 +271,12 @@
   function updatePauseButton() {
     const btn = document.getElementById('btn-pause-scan');
     if (!btn) return;
-    btn.textContent = isPaused ? '▶ Resume' : '⏸ Pause';
-    btn.classList.toggle('btn-warning', !isPaused);
+    btn.textContent = isPaused ? 'Resume' : 'Pause';
+    // Per design brief: only ONE accent button per screen.
+    // While paused, Resume becomes the primary; otherwise Pause is a ghost.
     btn.classList.toggle('btn-primary', isPaused);
+    btn.classList.toggle('btn-ghost', !isPaused);
+    btn.classList.remove('btn-warning');
   }
   function wirePauseButton() {
     const btn = document.getElementById('btn-pause-scan');

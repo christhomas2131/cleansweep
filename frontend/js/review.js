@@ -60,7 +60,7 @@
         const tip = document.createElement('div');
         tip.className = 'review-onboarding-tip';
         tip.innerHTML = `
-          <span>💡 Hover any card to unblur. Click to select. Use the toolbar to delete or quarantine.</span>
+          <span>Hover any card to unblur. Click to select. Use the toolbar to delete or quarantine.</span>
           <button class="btn btn-xs" id="tip-dismiss">Got it</button>`;
         document.body.appendChild(tip);
         const dismiss = () => {
@@ -405,11 +405,11 @@
         const lowPct = (counts[0].count + counts[1].count) / totalCount;
         const highPct = (counts[3].count + counts[4].count) / totalCount;
         if (highPct >= 0.6) {
-          tipEl.textContent = '💡 Most flags are high confidence — likely true matches.';
+          tipEl.textContent = 'Most flags are high confidence — likely true matches.';
         } else if (lowPct >= 0.6) {
-          tipEl.textContent = '💡 Most flags are lower confidence — many may be false positives.';
+          tipEl.textContent = 'Most flags are lower confidence — many may be false positives.';
         } else {
-          tipEl.textContent = '💡 Mixed confidence — review by category using filters above.';
+          tipEl.textContent = 'Mixed confidence — review by category using filters above.';
         }
       }
     }
@@ -495,7 +495,7 @@
       const btn = document.getElementById('qs-worst');
       if (btn) {
         btn.classList.toggle('active', showTopOnly);
-        btn.textContent = showTopOnly ? 'Showing top 10 worst' : '🚨 Top 10 Worst';
+        btn.textContent = showTopOnly ? 'Showing top 10 worst' : 'Top 10 worst';
       }
       currentPage = 1;
       renderGrid();

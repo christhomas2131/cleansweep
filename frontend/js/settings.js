@@ -34,9 +34,9 @@
     const checkUpdates = currentConfig.check_updates !== false;
 
     el.innerHTML = `
-      <div style="overflow-y:auto;flex:1;display:flex;flex-direction:column;align-items:center;">
+      <div class="screen-scroll">
         <div class="settings-layout">
-          <button class="settings-back" id="settings-back-btn">← Back</button>
+          <button class="settings-back" id="settings-back-btn">Back</button>
           <div class="settings-title">Settings</div>
 
           <!-- Scanning -->
@@ -176,18 +176,18 @@
 
           <!-- Your Stats (D3) -->
           <div class="settings-section">
-            <div class="settings-section-title">Your Stats</div>
+            <div class="settings-section-title">Your stats</div>
             <div class="stats-row">
               <div class="stat-block">
-                <div class="stat-block-label">📊 Files scanned</div>
+                <div class="stat-block-label">Files scanned</div>
                 <div class="stat-block-value">${(currentConfig.lifetime_files_scanned || 0).toLocaleString()}</div>
               </div>
               <div class="stat-block">
-                <div class="stat-block-label">⏱ Scan time</div>
+                <div class="stat-block-label">Scan time</div>
                 <div class="stat-block-value">${formatLifetimeSeconds(currentConfig.lifetime_scan_seconds || 0)}</div>
               </div>
               <div class="stat-block">
-                <div class="stat-block-label">🛡 Items flagged</div>
+                <div class="stat-block-label">Items flagged</div>
                 <div class="stat-block-value">${(currentConfig.lifetime_flagged || 0).toLocaleString()}</div>
               </div>
             </div>

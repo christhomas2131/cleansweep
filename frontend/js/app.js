@@ -140,6 +140,13 @@ async function initApp() {
   wireUpTitleBar();
   startConnectionMonitor();
 
+  // Apply saved theme as early as possible
+  api.config().then(cfg => {
+    if (cfg && cfg.theme === 'light') {
+      document.body.classList.add('theme-light');
+    }
+  }).catch(() => {});
+
   // Health check with retries before doing anything
   let healthy = false;
   for (let i = 0; i < 5; i++) {

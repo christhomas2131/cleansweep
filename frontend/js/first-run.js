@@ -23,13 +23,12 @@
           <div class="step-dot"></div>
           <div class="step-dot"></div>
         </div>
-        <div class="first-run-icon">🛡️</div>
         <div class="first-run-title">Welcome to CleanSweep</div>
         <div class="first-run-subtitle">
           Find and remove sensitive content from your photos, videos, and documents.
           Everything runs privately on your machine — your files are never uploaded.
         </div>
-        <button class="btn btn-primary" id="fr-get-started" style="width:100%;">Get Started →</button>
+        <button class="btn btn-primary fr-cta" id="fr-get-started">Get started</button>
       </div>
     `;
     document.getElementById('fr-get-started')?.addEventListener('click', () => {
@@ -45,22 +44,21 @@
           <div class="step-dot active"></div>
           <div class="step-dot"></div>
         </div>
-        <div class="first-run-icon">📥</div>
-        <div class="first-run-title">Setting up CleanSweep</div>
-        <div class="first-run-subtitle">Downloading AI model — this only happens once (~350 MB).</div>
+        <div class="first-run-title">Setting up</div>
+        <div class="first-run-subtitle">Downloading the AI model — this only happens once (~350 MB).</div>
         <div class="first-run-progress">
           <div class="first-run-progress-label">
-            <span id="dl-status-text">Starting download...</span>
+            <span id="dl-status-text">Starting download…</span>
             <span id="dl-percent-text">0%</span>
           </div>
           <div class="progress-bar-track">
             <div class="progress-bar-fill" id="dl-bar" style="width:0%"></div>
           </div>
-          <div class="first-run-progress-label" style="margin-top:6px;">
+          <div class="first-run-progress-label fr-progress-secondary">
             <span id="dl-speed-text"></span>
           </div>
         </div>
-        <div class="first-run-privacy">🔒 Your files are never uploaded. Everything runs locally.</div>
+        <div class="first-run-privacy">Your files are never uploaded. Everything runs locally.</div>
       </div>
     `;
 
@@ -117,20 +115,20 @@
 
     // Build the tutorial overlay HTML
     overlay.innerHTML = `
-      <div class="tutorial-callout" style="top:120px;left:80px;">
+      <div class="tutorial-callout" style="top:140px;left:96px;">
         <div class="tutorial-callout-num">Step 1 of 3</div>
         Start by selecting a folder to scan — drop it in or browse your files.
       </div>
-      <div class="tutorial-callout" style="top:240px;left:80px;">
+      <div class="tutorial-callout" style="top:280px;left:96px;">
         <div class="tutorial-callout-num">Step 2 of 3</div>
         Adjust sensitivity — lower values catch more, higher values reduce false positives.
       </div>
-      <div class="tutorial-callout" style="top:360px;right:80px;left:auto;">
+      <div class="tutorial-callout" style="top:420px;right:96px;left:auto;">
         <div class="tutorial-callout-num">Step 3 of 3</div>
-        Hit Scan and let the AI do the work. You review and decide what to keep or remove.
+        Hit scan and let the AI do the work. You review and decide what to keep or remove.
       </div>
       <div class="tutorial-dismiss-area">
-        <button class="btn btn-primary" id="tutorial-got-it">Got it — Let's go!</button>
+        <button class="btn btn-primary" id="tutorial-got-it">Got it</button>
       </div>
     `;
 
