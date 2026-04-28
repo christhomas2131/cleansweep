@@ -12,3 +12,7 @@ build/
 *.spec
 .DS_Store
 Thumbs.db
+
+# License keys (NEVER COMMIT — these are sellable products)
+licenses_unsold.txt
+licenses_sold.txt

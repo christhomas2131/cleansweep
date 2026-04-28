@@ -193,20 +193,38 @@ def save_config(updates):
 
 
 # ── License helpers ───────────────────────────────────────────────────────────
-LICENSE_KEY_PATTERN = re.compile(r'^CSWEEP-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$', re.IGNORECASE)
+LICENSE_KEY_PATTERN = re.compile(
+    r'^CSWEEP-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$'
+)
+
+
+def validate_license_key(key):
+    """
+    Validates a license key against the published format.
+    Format: CSWEEP-XXXX-XXXX-XXXX-XXXX where X is uppercase alphanumeric.
+    NOTE: format-only check for v1.0; will be replaced with a server-side
+    lookup once the license server is built.
+    """
+    if not key or not isinstance(key, str):
+        return False
+    return bool(LICENSE_KEY_PATTERN.match(key.strip().upper()))
 
 
 def load_license():
-    if os.path.isfile(LICENSE_FILE):
-        try:
-            with open(LICENSE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    # DEV MODE: auto-activate pro for testing. Remove before shipping.
-    dev_license = {"activated": True, "tier": "pro", "key": "CSWEEP-DEV0-ADMN-TEST-0000"}
-    save_license(dev_license)
-    return dev_license
+    """Load saved license from disk. Returns dict. No automatic Pro promotion."""
+    if not os.path.exists(LICENSE_FILE):
+        return {'tier': 'free', 'key': None}
+    try:
+        with open(LICENSE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        # Re-validate the saved key (in case validation rules changed in an update)
+        if validate_license_key(data.get('key', '')):
+            return {'tier': 'pro', 'key': data['key']}
+        else:
+            return {'tier': 'free', 'key': None}
+    except Exception as e:
+        log.warning(f"License file unreadable, defaulting to free: {e}")
+        return {'tier': 'free', 'key': None}
 
 
 def save_license(data):
@@ -218,8 +236,12 @@ def save_license(data):
 
 
 def is_pro():
-    lic = load_license()
-    return lic.get("activated", False) and lic.get("tier") == "pro"
+    return current_license.get('tier') == 'pro'
+
+
+# In-memory license cache — initialized from disk at startup, updated by activate/deactivate
+current_license = load_license()
+log.info(f"License tier at startup: {current_license['tier']}")
 
 
 # ── Scan history helpers ──────────────────────────────────────────────────────
@@ -1128,39 +1150,59 @@ def model_download_progress():
 
 @app.route("/license", methods=["GET"])
 def get_license():
-    lic = load_license()
     return jsonify({
-        "activated": lic.get("activated", False),
-        "tier": lic.get("tier", "free"),
-        "key": lic.get("key"),
+        "activated": current_license.get('tier') == 'pro',
+        "tier": current_license.get('tier', 'free'),
+        "key": current_license.get('key'),
     })
 
 
 @app.route("/activate", methods=["POST"])
 def activate():
+    global current_license
     data = request.get_json(force=True, silent=True) or {}
-    key = data.get("license_key", "").strip().upper()
+    key = (data.get('license_key') or '').strip().upper()
 
     if not key:
-        return jsonify({"valid": False, "error": "License key is required"})
+        return jsonify({
+            'valid': False,
+            'error': 'NO_KEY_PROVIDED',
+            'message': 'Please enter a license key.',
+        }), 400
 
-    if not LICENSE_KEY_PATTERN.match(key):
-        return jsonify({"valid": False, "error": "Invalid license key format"})
+    if not validate_license_key(key):
+        return jsonify({
+            'valid': False,
+            'error': 'INVALID_KEY_FORMAT',
+            'message': 'That license key is not valid. Keys are in the format CSWEEP-XXXX-XXXX-XXXX-XXXX.',
+        }), 400
 
-    # For v1: any key matching the format is valid
-    lic_data = {
-        "activated": True,
-        "tier": "pro",
-        "key": key,
-    }
-    save_license(lic_data)
-    return jsonify({"valid": True, "tier": "pro"})
+    os.makedirs(APP_DATA_DIR, exist_ok=True)
+    with open(LICENSE_FILE, 'w', encoding='utf-8') as f:
+        json.dump({'key': key, 'tier': 'pro', 'activated_at': time.time()}, f, indent=2)
+
+    current_license = {'tier': 'pro', 'key': key}
+    log.info(f"License activated: {key[:16]}...")
+
+    return jsonify({
+        'valid': True,
+        'tier': 'pro',
+        'key': key,
+        'message': 'License activated! You now have Pro access.',
+    })
 
 
 @app.route("/deactivate", methods=["POST"])
 def deactivate():
-    save_license({"activated": False, "tier": "free", "key": None})
-    return jsonify({"status": "deactivated"})
+    global current_license
+    try:
+        if os.path.exists(LICENSE_FILE):
+            os.remove(LICENSE_FILE)
+        current_license = {'tier': 'free', 'key': None}
+        log.info("License deactivated.")
+        return jsonify({'success': True, 'tier': 'free'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # ── Export endpoint ───────────────────────────────────────────────────────────
