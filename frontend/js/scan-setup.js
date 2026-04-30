@@ -282,8 +282,25 @@
       entry.count = data.total_images || 0;
       entry.sizeMb = data.total_size_mb || 0;
       entry.loading = false;
+      // Backend returned 200 but with per-folder errors (e.g. PermissionError).
+      // On Mac, surface a TCC dialog instead of a generic toast.
+      const folderErr = (data.errors || []).find(e => e.folder === path || normalize(e.folder) === normalize(path));
+      if (folderErr && window.handlePermissionError?.(folderErr.reason, path)) {
+        const idx = selectedFolders.indexOf(entry);
+        if (idx >= 0) selectedFolders.splice(idx, 1);
+        syncAppState();
+        renderFoldersList();
+        return false;
+      }
     } catch (err) {
-      // Invalid folder — remove silently (or show a toast)
+      // Mac-specific permission error → guide to System Settings
+      if (window.handlePermissionError?.(err?.message || '', path)) {
+        const idx = selectedFolders.indexOf(entry);
+        if (idx >= 0) selectedFolders.splice(idx, 1);
+        syncAppState();
+        renderFoldersList();
+        return false;
+      }
       toast(`Couldn't read folder: ${shortFolder(path)}`, 'error');
       const idx = selectedFolders.indexOf(entry);
       if (idx >= 0) selectedFolders.splice(idx, 1);

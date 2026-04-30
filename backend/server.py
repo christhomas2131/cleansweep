@@ -84,6 +84,7 @@ from scanner import shared_state, run_scan, set_stop, find_files, _scan_lock, IM
 from video_scanner import check_ffmpeg, VIDEO_EXTENSIONS
 from document_scanner import DOCUMENT_EXTENSIONS
 from progress import load_progress, save_progress, clear_progress
+import watcher
 
 # ── App Config ───────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -1366,10 +1367,49 @@ def undo_delete():
     return jsonify({"restored": restored})
 
 
+# ── Folder watch (FSEvents on Mac) ───────────────────────────────────────────
+
+@app.route("/watch/start", methods=["POST"])
+def watch_start():
+    data = request.get_json(force=True, silent=True) or {}
+    folder = data.get("folder", "")
+    try:
+        threshold = float(data.get("threshold", 0.5))
+    except (TypeError, ValueError):
+        threshold = 0.5
+    if not folder:
+        return jsonify({"error": "folder is required"}), 400
+    if not os.path.isdir(folder):
+        return jsonify({"error": "folder does not exist"}), 400
+    ok, err = watcher.start_watch(folder, threshold)
+    if not ok:
+        return jsonify({"error": err}), 400
+    return jsonify({"status": "watching", "folder": folder, "threshold": threshold})
+
+
+@app.route("/watch/stop", methods=["POST"])
+def watch_stop():
+    watcher.stop_watch()
+    return jsonify({"status": "stopped"})
+
+
+@app.route("/watch/status", methods=["GET"])
+def watch_status():
+    try:
+        since_id = int(request.args.get("since_id", 0))
+    except (TypeError, ValueError):
+        since_id = 0
+    return jsonify(watcher.get_status(since_id=since_id))
+
+
 # ── Graceful Shutdown ─────────────────────────────────────────────────────────
 
 def _handle_shutdown(signum, frame):
     log.info("Backend shutting down gracefully.")
+    try:
+        watcher.stop_watch()
+    except Exception:
+        pass
     sys.exit(0)
 
 signal.signal(signal.SIGINT, _handle_shutdown)

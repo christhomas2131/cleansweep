@@ -42,6 +42,35 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
+    },
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] }
+      ],
+      "darkModeSupport": true,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "NSHighResolutionCapable": true,
+        "LSMinimumSystemVersion": "11.0",
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Folder",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": ["public.folder"]
+          }
+        ],
+        "NSServices": [
+          {
+            "NSMenuItem": { "default": "Scan with CleanSweep" },
+            "NSMessage": "openFiles",
+            "NSPortName": "CleanSweep",
+            "NSSendTypes": ["NSFilenamesPboardType", "public.file-url"]
+          }
+        ]
+      }
     }
   },
   "devDependencies": {

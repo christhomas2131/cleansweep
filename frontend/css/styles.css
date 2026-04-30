@@ -1114,6 +1114,27 @@ input[type="checkbox"] {
   border-radius: var(--radius-full);
   transition: width var(--duration-medium) linear;
   width: 0%;
+  position: relative;
+  overflow: hidden;
+}
+/* Subtle moving shimmer while a scan is active — pure CSS, no JS toggle.
+   The fill is non-zero only during scanning, so the shimmer rides along. */
+.progress-bar-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.16) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: progressShimmer 1.6s ease-in-out infinite;
+}
+@keyframes progressShimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
 }
 
 /* Loading-model banner (indeterminate) */
@@ -1722,13 +1743,32 @@ input[type="checkbox"] {
   border-radius: var(--radius-md);
   overflow: hidden;
   cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease);
+  transition: border-color var(--duration-fast) var(--ease),
+              transform var(--duration-fast) var(--ease),
+              box-shadow var(--duration-fast) var(--ease);
   position: relative;
+  /* Stagger fade-up on grid mount; --idx is set inline by review.js. */
+  animation: cardEnter 280ms var(--ease) both;
+  animation-delay: calc(var(--idx, 0) * 14ms);
 }
-.result-card:hover { border-color: var(--border-default); }
+.result-card:hover {
+  border-color: var(--border-default);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+.result-card:active { transform: translateY(0); }
+@keyframes cardEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 .result-card.selected {
   border-color: var(--accent);
   animation: selectPop 160ms var(--ease);
+}
+/* Subtle "focused" ring — last clicked card; tapped by Spacebar Quick Look. */
+.result-card.focused:not(.selected) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.04);
 }
 
 .card-thumb-area {
@@ -2199,4 +2239,140 @@ html.no-electron .card-open-folder-btn { display: none; }
   0%   { transform: scale(1); }
   50%  { transform: scale(0.98); }
   100% { transform: scale(1); }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   QUICK LOOK — spacebar preview (Mac-style)
+═══════════════════════════════════════════════════════════════════ */
+.quicklook-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 56px;
+}
+.quicklook-modal.visible {
+  display: flex;
+  animation: qlFadeIn 140ms var(--ease);
+}
+.quicklook-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+}
+.quicklook-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: min(900px, 92vw);
+  max-height: 88vh;
+  width: 100%;
+  background: var(--bg-surface-1, #1a1a1a);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  animation: qlScaleIn 160ms var(--ease);
+}
+.quicklook-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+.quicklook-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  min-width: 0;
+}
+.quicklook-filename {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 600px;
+}
+.quicklook-score {
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  letter-spacing: 0.02em;
+}
+.quicklook-score.conf-red { background: rgba(255, 80, 80, 0.18); color: #ff8585; }
+.quicklook-score.conf-orange { background: rgba(255, 165, 0, 0.18); color: #ffb84d; }
+.quicklook-score.conf-yellow { background: rgba(255, 220, 50, 0.16); color: #ffd966; }
+.quicklook-close {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 22px;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.quicklook-close:hover { background: rgba(255, 255, 255, 0.06); color: var(--text-primary); }
+.quicklook-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #000;
+  overflow: hidden;
+  min-height: 0;
+}
+.quicklook-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+}
+.quicklook-empty {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+.quicklook-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono, monospace);
+  flex-shrink: 0;
+  gap: 16px;
+}
+.quicklook-path {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.quicklook-nav-hint {
+  white-space: nowrap;
+  font-family: var(--font-sans);
+  opacity: 0.7;
+}
+
+@keyframes qlFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes qlScaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
 }

@@ -235,6 +235,9 @@
     // the app, otherwise the in-app toast is sufficient.
     fireCompletionNotification(scanned, flagged);
 
+    // Mac dock badge — surfaces the flagged count even when the app isn't focused.
+    window.electronAPI?.setDockBadge?.(flagged);
+
     // Store total scanned count for review screen header
     try { sessionStorage.setItem('lastScanTotal', JSON.stringify({ total: p.total || 0, scanned: p.scanned || 0 })); } catch {}
 
@@ -368,7 +371,10 @@
     updateProgressUI(p);
     window.electronAPI?.setScanRunning?.(false).catch(() => {});
     window.electronAPI?.setTaskbarProgress?.(-1);
-    toast('Scanner error: ' + (p.error_message || 'Unknown error'), 'error', 5000);
+    const msg = p.error_message || 'Unknown error';
+    // Mac TCC blocking? Show the System Settings dialog instead of a toast.
+    if (window.handlePermissionError?.(msg)) return;
+    toast('Scanner error: ' + msg, 'error', 5000);
   }
 
   function formatBytesMatched(done, total) {

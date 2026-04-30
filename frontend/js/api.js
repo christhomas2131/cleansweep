@@ -98,4 +98,13 @@ const api = {
   deleteHistory: (id) => api._fetch(`/history/${id}`, { method: 'DELETE' }),
 
   exportCsvUrl: () => API_BASE + '/export?format=csv',
+
+  // ── Folder watch (auto-scan new files) ─────────────────────────────────
+  watchStart: (folder, threshold) => api._fetch('/watch/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folder, threshold }),
+  }),
+  watchStop:   () => api._fetch('/watch/stop', { method: 'POST' }),
+  watchStatus: (sinceId = 0) => api._fetch(`/watch/status?since_id=${sinceId}`),
 };

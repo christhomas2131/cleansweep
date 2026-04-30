@@ -143,6 +143,141 @@ function wireUpTitleBar() {
   }
 }
 
+// ── Folder watch — poll backend for new flags and notify ─────
+let _watchLastFlagId = 0;
+let _watchPollHandle = null;
+
+function startWatchPolling() {
+  if (_watchPollHandle) return;
+  _watchPollHandle = setInterval(async () => {
+    try {
+      const s = await api.watchStatus(_watchLastFlagId);
+      // Stop polling if backend says watch is off
+      if (!s.watching) {
+        stopWatchPolling();
+        return;
+      }
+      const flags = s.recent_flags || [];
+      if (flags.length > 0) {
+        flags.forEach(fireWatchNotification);
+        _watchLastFlagId = Math.max(_watchLastFlagId, ...flags.map(f => f.id || 0));
+      }
+    } catch { /* network blip — keep polling */ }
+  }, 3000);
+}
+
+function stopWatchPolling() {
+  if (_watchPollHandle) {
+    clearInterval(_watchPollHandle);
+    _watchPollHandle = null;
+  }
+}
+
+function fireWatchNotification(flag) {
+  const pct = Math.round((flag.score || 0) * 100);
+  const body = `${flag.filename}  ·  ${pct}%`;
+  // Native NotificationCenter
+  if ('Notification' in window) {
+    const send = () => {
+      try {
+        const n = new Notification('CleanSweep — Flagged file', { body });
+        n.onclick = () => {
+          window.focus();
+          if (flag.path && window.electronAPI?.openContainingFolder) {
+            window.electronAPI.openContainingFolder(flag.path);
+          }
+        };
+      } catch (_) {}
+    };
+    if (Notification.permission === 'granted') send();
+    else if (Notification.permission !== 'denied') {
+      Notification.requestPermission().then(p => p === 'granted' && send());
+    }
+  }
+  // In-app toast as a backup
+  toast(`Auto-scan flagged: ${flag.filename} (${pct}%)`, 'warning', 5000);
+}
+
+// On app load, resume polling if backend already has a watch active.
+async function maybeResumeWatchPolling() {
+  try {
+    const s = await api.watchStatus(0);
+    if (s.watching) {
+      _watchLastFlagId = s.max_flag_id || 0;
+      startWatchPolling();
+    }
+  } catch (_) { /* backend may not be up yet */ }
+}
+
+window.startWatchPolling = startWatchPolling;
+window.stopWatchPolling = stopWatchPolling;
+
+// ── Mac TCC permission detection ─────────────────────────────
+// macOS blocks access to ~/Pictures, ~/Documents, ~/Downloads, etc. for apps
+// that haven't been granted "Files and Folders" or "Full Disk Access". When
+// a backend response indicates a permission failure, surface a Mac-flavored
+// dialog with a one-click jump to System Settings.
+const PERMISSION_PATTERNS = [
+  /permission denied/i,
+  /operation not permitted/i,
+  /errno 1\b/,
+  /access is denied/i, // Windows wording, harmless
+];
+
+function looksLikePermissionError(message) {
+  if (!message || typeof message !== 'string') return false;
+  return PERMISSION_PATTERNS.some(re => re.test(message));
+}
+
+function showMacPermissionDialog(folderPath) {
+  // De-dup: don't pile up dialogs for repeated rejections
+  if (document.getElementById('mac-tcc-dialog')) return;
+
+  const dialog = document.createElement('div');
+  dialog.id = 'mac-tcc-dialog';
+  dialog.className = 'modal visible';
+  dialog.innerHTML = `
+    <div class="modal-card">
+      <div class="modal-title">macOS is blocking access</div>
+      <div class="modal-body">
+        <p>CleanSweep needs permission to read this folder:</p>
+        <div class="modal-file-list"><div>${folderPath ? escapeHtml(folderPath) : '(folder)'}</div></div>
+        <p>Open System Settings → Privacy &amp; Security → Files &amp; Folders, find CleanSweep in the list, and toggle access on. You may need to relaunch after granting.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="mac-tcc-cancel">Not now</button>
+        <button class="btn btn-primary" id="mac-tcc-open">Open System Settings</button>
+      </div>
+    </div>`;
+  document.body.appendChild(dialog);
+
+  const close = () => dialog.remove();
+  dialog.addEventListener('click', (e) => { if (e.target === dialog) close(); });
+  document.getElementById('mac-tcc-cancel')?.addEventListener('click', close);
+  document.getElementById('mac-tcc-open')?.addEventListener('click', () => {
+    window.electronAPI?.openSystemPrivacySettings?.()
+      .catch(() => toast('Could not open System Settings.', 'error'));
+    close();
+  });
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Public helper: any module that gets a permission-flavored error message
+// can call this. On Mac it shows the TCC dialog; elsewhere it falls back
+// to a regular toast.
+window.handlePermissionError = function (message, folderPath) {
+  if (window.electronAPI?.platform === 'darwin' && looksLikePermissionError(message)) {
+    showMacPermissionDialog(folderPath);
+    return true;
+  }
+  return false;
+};
+
 // ── Menu actions (Mac native menu bar) ───────────────────────
 function wireMenuActions() {
   if (!window.electronAPI?.onMenuAction) return;
@@ -259,6 +394,7 @@ async function initApp() {
   }
 
   updateTierBadge();
+  maybeResumeWatchPolling();
 
   // Determine start screen based on model and config state
   try {

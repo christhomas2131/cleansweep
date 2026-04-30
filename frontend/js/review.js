@@ -16,6 +16,8 @@
   let pendingQuarantinePaths = [];
   let lastStagingId = null;   // C4: last delete for Ctrl+Z undo
   let lastStagingTimer = null;
+  let lastClickedIndex = null; // for Spacebar Quick Look
+  let quickLookIndex = null;   // index currently shown in the QL preview, or null
 
   // ── Entry point ───────────────────────────────────────────────
   async function initReview() {
@@ -23,6 +25,9 @@
     selectedSet.clear();
     currentPage = 1;
     activeFilter = null;
+
+    // User is now reviewing — clear any pending dock badge from the scan complete.
+    window.electronAPI?.setDockBadge?.(0);
 
     // Load config to respect hide_duplicates_default
     try {
@@ -189,8 +194,10 @@
     document.querySelector('.type-filter-bar')?.classList.remove('hidden');
 
     grid.innerHTML = '';
-    pageItems.forEach(item => {
-      grid.appendChild(renderCard(item));
+    pageItems.forEach((item, i) => {
+      const card = renderCard(item);
+      card.style.setProperty('--idx', i);
+      grid.appendChild(card);
     });
 
     // Load thumbnails async
@@ -244,6 +251,10 @@
     // Card click: toggle selection, but ignore clicks on the folder button
     div.addEventListener('click', (e) => {
       if (e.target.closest('.card-open-folder-btn')) return;
+      lastClickedIndex = item.index;
+      // Show focus ring on the most recently clicked card
+      document.querySelectorAll('.result-card.focused').forEach(c => c.classList.remove('focused'));
+      div.classList.add('focused');
       toggleSelect(item.index);
     });
 
@@ -723,14 +734,130 @@
     }, 30000);
   }
 
+  // ── Spacebar Quick Look (Mac-style file preview) ─────────────
+  function openQuickLook(index) {
+    const filtered = getFilteredResults();
+    if (!filtered.length) return;
+    let target = index;
+    if (target == null || !filtered.find(r => r.index === target)) {
+      // Fall back to first item on the current page
+      const start = (currentPage - 1) * PER_PAGE;
+      target = filtered[start]?.index;
+    }
+    if (target == null) return;
+    quickLookIndex = target;
+    renderQuickLook();
+  }
+
+  function closeQuickLook() {
+    quickLookIndex = null;
+    const m = document.getElementById('quicklook-modal');
+    if (m) m.classList.remove('visible');
+  }
+
+  function navigateQuickLook(delta) {
+    const filtered = getFilteredResults();
+    const i = filtered.findIndex(r => r.index === quickLookIndex);
+    if (i < 0) return;
+    const next = filtered[i + delta];
+    if (!next) return;
+    quickLookIndex = next.index;
+    renderQuickLook();
+  }
+
+  function renderQuickLook() {
+    let modal = document.getElementById('quicklook-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'quicklook-modal';
+      modal.className = 'quicklook-modal';
+      modal.innerHTML = `
+        <div class="quicklook-backdrop"></div>
+        <div class="quicklook-content" role="dialog" aria-label="Quick Look">
+          <div class="quicklook-header">
+            <div class="quicklook-title">
+              <span class="quicklook-filename"></span>
+              <span class="quicklook-score"></span>
+            </div>
+            <button class="quicklook-close" aria-label="Close">×</button>
+          </div>
+          <div class="quicklook-body">
+            <img class="quicklook-image" alt="">
+            <div class="quicklook-empty" style="display:none;">No preview available</div>
+          </div>
+          <div class="quicklook-footer">
+            <span class="quicklook-path"></span>
+            <span class="quicklook-nav-hint">← → to navigate · space or esc to close</span>
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+      modal.querySelector('.quicklook-backdrop').addEventListener('click', closeQuickLook);
+      modal.querySelector('.quicklook-close').addEventListener('click', closeQuickLook);
+    }
+
+    const item = allResults.find(r => r.index === quickLookIndex);
+    if (!item) return;
+
+    const filename = item.filename || '—';
+    const pct = Math.round((item.score || 0) * 100);
+    const path = item.path || '';
+
+    modal.querySelector('.quicklook-filename').textContent = filename;
+    modal.querySelector('.quicklook-score').textContent = `${pct}%`;
+    modal.querySelector('.quicklook-score').className =
+      'quicklook-score ' + (pct >= 90 ? 'conf-red' : pct >= 65 ? 'conf-orange' : 'conf-yellow');
+    modal.querySelector('.quicklook-path').textContent = path;
+
+    const img = modal.querySelector('.quicklook-image');
+    const empty = modal.querySelector('.quicklook-empty');
+    const cached = thumbCache.get(quickLookIndex);
+    if (cached) {
+      img.src = cached;
+      img.style.display = 'block';
+      empty.style.display = 'none';
+    } else {
+      img.style.display = 'none';
+      empty.style.display = 'block';
+      api.getThumb(quickLookIndex).then(data => {
+        if (data.thumbnail && quickLookIndex !== null) {
+          const src = 'data:image/jpeg;base64,' + data.thumbnail;
+          thumbCache.set(quickLookIndex, src);
+          img.src = src;
+          img.style.display = 'block';
+          empty.style.display = 'none';
+        }
+      }).catch(() => {});
+    }
+
+    modal.classList.add('visible');
+  }
+
   // ── Keyboard shortcuts ────────────────────────────────────────
   function wireKeyboard() {
     document.addEventListener('keydown', e => {
-      // Escape closes any open modal
+      // Escape closes any open modal (including Quick Look)
       if (e.key === 'Escape') {
+        if (quickLookIndex !== null) { closeQuickLook(); return; }
         document.querySelectorAll('.modal.visible').forEach(m => m.classList.remove('visible'));
         const overlay = document.getElementById('tutorial-overlay');
         if (overlay?.classList.contains('visible')) overlay.classList.remove('visible');
+      }
+      // Spacebar — Mac-style Quick Look on the focused card.
+      // Inside QL: arrow keys navigate, Space or Esc closes.
+      if (appState.currentScreen === 'scan-review' &&
+          e.key === ' ' &&
+          !e.target.matches('input, textarea, select, button')) {
+        e.preventDefault();
+        if (quickLookIndex !== null) {
+          closeQuickLook();
+        } else {
+          openQuickLook(lastClickedIndex);
+        }
+        return;
+      }
+      if (quickLookIndex !== null) {
+        if (e.key === 'ArrowRight') { e.preventDefault(); navigateQuickLook(1); return; }
+        if (e.key === 'ArrowLeft') { e.preventDefault(); navigateQuickLook(-1); return; }
       }
       // C4: Ctrl+Z / Cmd+Z undoes last delete (only on review screen)
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {

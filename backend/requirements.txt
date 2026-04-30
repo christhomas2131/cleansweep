@@ -10,3 +10,4 @@ openpyxl
 optimum[onnxruntime]
 onnxruntime
 psutil
+watchdog

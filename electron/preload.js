@@ -44,4 +44,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   /** Subscribe to system theme changes (Mac dark/light follows system when enabled). */
   onNativeThemeUpdated: (cb) => ipcRenderer.on("native-theme-updated", (_e, info) => cb(info)),
+
+  /** Set the Dock badge to the given integer. Pass 0 to clear. */
+  setDockBadge: (count) => ipcRenderer.send("set-dock-badge", count),
+
+  /** Mac: open System Settings → Privacy & Security → Files & Folders. */
+  openSystemPrivacySettings: () => ipcRenderer.invoke("open-system-privacy"),
 });

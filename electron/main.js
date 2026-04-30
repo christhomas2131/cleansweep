@@ -322,6 +322,32 @@ ipcMain.on("taskbar-progress", (_event, percent) => {
   }
 });
 
+// ── Dock badge (Mac) — flagged-count after scan ──────────────────────────────
+ipcMain.on("set-dock-badge", (_event, count) => {
+  try {
+    if (process.platform === "darwin" && app.dock) {
+      app.dock.setBadge(count > 0 ? String(count) : "");
+    } else if (typeof app.setBadgeCount === "function") {
+      app.setBadgeCount(count || 0);
+    }
+  } catch (_) { /* best-effort */ }
+});
+
+// ── Mac: open System Settings → Privacy & Security → Files & Folders ────────
+ipcMain.handle("open-system-privacy", async () => {
+  try {
+    if (process.platform === "darwin") {
+      await shell.openExternal(
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+      );
+      return { ok: true };
+    }
+    return { ok: false, error: "Only supported on macOS" };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 // ── E1: Windows right-click context menu ─────────────────────────────────────
 function installContextMenu() {
   if (process.platform !== "win32") return { ok: false, error: "Only supported on Windows" };

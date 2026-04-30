@@ -102,6 +102,30 @@
             </div>
           </div>
 
+          <!-- Auto-scan (folder watch) -->
+          <div class="settings-section">
+            <div class="settings-section-title">Auto-scan</div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-name">Watch a folder for new files</div>
+                <div class="settings-row-desc">Quietly scans images dropped into the folder and notifies you on flagged hits. Stops when CleanSweep quits.</div>
+              </div>
+              <div class="settings-row-control">
+                <div class="toggle" id="toggle-watch">
+                  <div class="toggle-track"></div>
+                  <span class="toggle-label">Off</span>
+                </div>
+              </div>
+            </div>
+            <div id="watch-folder-row" style="display:none;gap:8px;align-items:center;margin-top:8px;">
+              <input type="text" id="watch-folder-path" placeholder="Pick a folder to watch" readonly>
+              <button class="btn btn-secondary btn-sm" id="watch-folder-browse">Browse</button>
+            </div>
+            <div id="watch-status-row" style="display:none;margin-top:8px;font-size:12px;color:var(--text-tertiary);">
+              <span id="watch-status-text"></span>
+            </div>
+          </div>
+
           <!-- Notifications / Integration -->
           <div class="settings-section">
             <div class="settings-section-title">Notifications</div>
@@ -352,6 +376,84 @@
         initSettings();
       }).catch(err => toast('Error: ' + err.message, 'error'));
     });
+
+    wireWatchControls();
+  }
+
+  // ── Folder watch (auto-scan) ─────────────────────────────────
+  function wireWatchControls() {
+    const toggle = document.getElementById('toggle-watch');
+    const folderRow = document.getElementById('watch-folder-row');
+    const folderInput = document.getElementById('watch-folder-path');
+    const browseBtn = document.getElementById('watch-folder-browse');
+    const statusRow = document.getElementById('watch-status-row');
+    const statusText = document.getElementById('watch-status-text');
+    if (!toggle) return;
+
+    // Pull current state from the backend (in-memory; resets on backend restart)
+    api.watchStatus(0).then(s => {
+      if (s.watching) {
+        toggle.classList.add('on');
+        toggle.querySelector('.toggle-label').textContent = 'On';
+        if (folderInput) folderInput.value = s.folder || '';
+        if (folderRow) folderRow.style.display = 'flex';
+        if (statusRow) statusRow.style.display = 'block';
+        if (statusText) statusText.textContent = `Watching ${s.folder} · ${s.total_scanned} scanned · ${s.recent_flags.length} recent flags`;
+      }
+    }).catch(() => {});
+
+    browseBtn?.addEventListener('click', async () => {
+      const folder = await window.electronAPI?.selectFolder?.();
+      if (!folder) return;
+      if (folderInput) folderInput.value = folder;
+      // If watch is already on, restart it on the new folder
+      if (toggle.classList.contains('on')) {
+        await api.watchStop().catch(() => {});
+        await startWatchOnFolder(folder);
+      }
+    });
+
+    toggle.addEventListener('click', async function () {
+      const wasOn = this.classList.contains('on');
+      if (!wasOn) {
+        // Need a folder first
+        let folder = folderInput?.value || '';
+        if (!folder) {
+          folder = await window.electronAPI?.selectFolder?.() || '';
+          if (!folder) return; // user cancelled
+          if (folderInput) folderInput.value = folder;
+        }
+        await startWatchOnFolder(folder);
+      } else {
+        await api.watchStop().catch(() => {});
+        this.classList.remove('on');
+        this.querySelector('.toggle-label').textContent = 'Off';
+        if (folderRow) folderRow.style.display = 'none';
+        if (statusRow) statusRow.style.display = 'none';
+        if (window.cleanSweepWatchPoller) {
+          clearInterval(window.cleanSweepWatchPoller);
+          window.cleanSweepWatchPoller = null;
+        }
+      }
+    });
+
+    async function startWatchOnFolder(folder) {
+      const threshold = currentConfig?.default_threshold ?? 0.5;
+      try {
+        await api.watchStart(folder, threshold);
+        toggle.classList.add('on');
+        toggle.querySelector('.toggle-label').textContent = 'On';
+        if (folderRow) folderRow.style.display = 'flex';
+        if (statusRow) statusRow.style.display = 'block';
+        if (statusText) statusText.textContent = `Watching ${folder}`;
+        // Kick off renderer-side polling for notifications
+        if (typeof window.startWatchPolling === 'function') window.startWatchPolling();
+        toast(`Watching ${folder}. New images will be scanned automatically.`, 'success', 4000);
+      } catch (err) {
+        if (window.handlePermissionError?.(err.message, folder)) return;
+        toast('Could not start watch: ' + err.message, 'error');
+      }
+    }
   }
 
   function saveConfig(updates) {
