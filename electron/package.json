@@ -6,13 +6,27 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build": "electron-builder"
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.3"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0"
   },
   "build": {
     "appId": "com.cleansweep.app",
     "productName": "CleanSweep",
     "directories": {
       "output": "../build/installer"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "christhomas2131",
+      "repo": "cleansweep"
     },
     "files": [
       "main.js",
@@ -27,30 +41,21 @@
       {
         "from": "../build/backend-dist/cleansweep-engine",
         "to": "backend"
-      },
-      {
-        "from": "../resources/ffmpeg.exe",
-        "to": "ffmpeg.exe"
       }
     ],
-    "win": {
-      "target": "nsis",
-      "icon": "icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    },
     "mac": {
       "category": "public.app-category.utilities",
       "icon": "../resources/icon.icns",
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "darkModeSupport": true,
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "extendInfo": {
         "NSHighResolutionCapable": true,
@@ -60,22 +65,62 @@
             "CFBundleTypeName": "Folder",
             "CFBundleTypeRole": "Viewer",
             "LSHandlerRank": "Alternate",
-            "LSItemContentTypes": ["public.folder"]
+            "LSItemContentTypes": [
+              "public.folder"
+            ]
           }
         ],
         "NSServices": [
           {
-            "NSMenuItem": { "default": "Scan with CleanSweep" },
+            "NSMenuItem": {
+              "default": "Scan with CleanSweep"
+            },
             "NSMessage": "openFiles",
             "NSPortName": "CleanSweep",
-            "NSSendTypes": ["NSFilenamesPboardType", "public.file-url"]
+            "NSSendTypes": [
+              "NSFilenamesPboardType",
+              "public.file-url"
+            ]
           }
         ]
       }
+    },
+    "dmg": {
+      "title": "CleanSweep",
+      "background": null,
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        {
+          "x": 150,
+          "y": 185,
+          "type": "file"
+        },
+        {
+          "x": 390,
+          "y": 185,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico",
+      "extraResources": [
+        {
+          "from": "../resources/ffmpeg.exe",
+          "to": "ffmpeg.exe"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
-  },
-  "devDependencies": {
-    "electron": "^28.0.0",
-    "electron-builder": "^24.0.0"
   }
 }

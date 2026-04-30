@@ -232,6 +232,10 @@
               <button class="about-link" onclick="void 0">Support</button>
               <button class="about-link" onclick="void 0">Privacy Policy</button>
             </div>
+            <div style="margin-top:12px;">
+              <button class="btn btn-secondary btn-sm" id="btn-check-updates">Check for Updates</button>
+              <span id="update-check-status" style="margin-left:10px;font-size:12px;color:var(--text-tertiary);"></span>
+            </div>
           </div>
         </div>
       </div>
@@ -375,6 +379,26 @@
         window.updateTierBadge?.();
         initSettings();
       }).catch(err => toast('Error: ' + err.message, 'error'));
+    });
+
+    // Check for Updates button (About section)
+    document.getElementById('btn-check-updates')?.addEventListener('click', async function () {
+      const status = document.getElementById('update-check-status');
+      this.disabled = true;
+      if (status) status.textContent = 'Checking…';
+      try {
+        const result = await window.electronAPI?.checkForUpdates?.();
+        if (!result || result.error) {
+          if (status) status.textContent = result?.error?.includes('dev') ? 'Updates only in packaged app.' : 'Could not check for updates.';
+        } else if (result.version) {
+          if (status) status.textContent = `v${result.version} available — will install on quit.`;
+        } else {
+          if (status) status.textContent = 'You're on the latest version.';
+        }
+      } catch {
+        if (status) status.textContent = 'Update check failed.';
+      }
+      this.disabled = false;
     });
 
     wireWatchControls();

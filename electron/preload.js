@@ -53,4 +53,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   /** Mac: open System Settings → Privacy & Security → Files & Folders. */
   openSystemPrivacySettings: () => ipcRenderer.invoke("open-system-privacy"),
+
+  /** Check for app updates (production builds only — returns { ok, version } or { error }). */
+  checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
 });

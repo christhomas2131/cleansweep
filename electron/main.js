@@ -9,6 +9,12 @@ const { spawn, execSync } = require("child_process");
 const http = require("http");
 const fs = require("fs");
 
+// electron-updater — loaded lazily so a missing dep doesn't crash dev mode
+let autoUpdater = null;
+try {
+  autoUpdater = require("electron-updater").autoUpdater;
+} catch (_) { /* package not installed yet — Phase 3 infrastructure */ }
+
 const isDev = !app.isPackaged;
 
 let mainWindow = null;
@@ -410,6 +416,17 @@ ipcMain.handle("open-containing-folder", (_event, filePath) => {
   }
 });
 
+// ── Auto-update: manual trigger from renderer (Settings → Check for Updates) ─
+ipcMain.handle("check-for-updates", async () => {
+  if (!autoUpdater) return { error: "Updater not available" };
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return { ok: true, version: result?.updateInfo?.version ?? null };
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
 // ── Native application menu (Mac-first; works on Windows/Linux too) ─────────
 function sendToRenderer(channel, ...args) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -608,6 +625,29 @@ app.whenReady().then(async () => {
       sendToRenderer("menu-action", "open-folder", pendingOpenFolder);
       pendingOpenFolder = null;
     });
+  }
+
+  // Auto-update: check GitHub Releases on every launch (production only).
+  // Requires Phase 2 code signing to install silently on macOS.
+  if (!isDev && autoUpdater) {
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.on("update-downloaded", () => {
+      dialog.showMessageBox(mainWindow, {
+        type: "info",
+        title: "Update Ready",
+        message: "A new version of CleanSweep has been downloaded.",
+        detail: "It will be installed the next time you quit the app.",
+        buttons: ["Restart Now", "Later"],
+        defaultId: 0,
+      }).then(({ response }) => {
+        if (response === 0) autoUpdater.quitAndInstall();
+      }).catch(() => {});
+    });
+    autoUpdater.on("error", (err) => {
+      console.error("[updater] error:", err.message);
+    });
+    autoUpdater.checkForUpdates().catch(() => {});
   }
 
   // Push system theme changes to the renderer for the 'system' theme option.
