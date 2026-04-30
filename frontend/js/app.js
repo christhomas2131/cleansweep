@@ -313,19 +313,70 @@ function wireMenuActions() {
 
 // ── Drag-and-drop a folder anywhere on the window ────────────
 function wireGlobalDragDrop() {
-  // Prevent the browser's default behavior of opening the dropped file
-  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
-    document.addEventListener(evt, e => e.preventDefault(), false);
-  });
+  // Counter pattern — dragleave fires when entering child elements,
+  // so we count net enter/leave events to know when the drag really exits.
+  let dragDepth = 0;
 
-  document.addEventListener('drop', e => {
+  function isFileDrag(e) {
+    const types = e.dataTransfer?.types;
+    if (!types) return false;
+    // Cross-browser: types is DOMStringList in older, array-like in newer
+    return Array.from(types).includes('Files');
+  }
+
+  function showOverlay() {
+    let el = document.getElementById('drop-overlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'drop-overlay';
+      el.className = 'drop-overlay';
+      el.innerHTML = `
+        <div class="drop-overlay-card">
+          <svg class="drop-overlay-shield" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+            <path d="M8 1.5 L13.5 4 L13.5 8.5 C13.5 11.5 11 13.5 8 14.5 C5 13.5 2.5 11.5 2.5 8.5 L2.5 4 Z"/>
+          </svg>
+          <div class="drop-overlay-title">Drop folder to scan</div>
+          <div class="drop-overlay-sub">CleanSweep will add it to the scan list.</div>
+        </div>`;
+      document.body.appendChild(el);
+    }
+    el.classList.add('visible');
+  }
+
+  function hideOverlay() {
+    const el = document.getElementById('drop-overlay');
+    if (el) el.classList.remove('visible');
+  }
+
+  document.addEventListener('dragenter', (e) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    dragDepth++;
+    if (dragDepth === 1) showOverlay();
+  });
+  document.addEventListener('dragover', (e) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  document.addEventListener('dragleave', (e) => {
+    if (!isFileDrag(e)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) hideOverlay();
+  });
+  document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    hideOverlay();
     const files = Array.from(e.dataTransfer?.files || []);
     if (!files.length) return;
-    const folder = files.find(f => f.path && (!f.type || f.type === ''));
-    if (!folder?.path) return;
+    // Folders show up as File objects with empty type and a path. Multiple
+    // dropped folders are all forwarded to scan-setup's addFolder.
+    const folders = files.filter(f => f.path && (!f.type || f.type === ''));
+    if (!folders.length) return;
     showScreen('scan-setup');
     if (typeof window.addScanFolder === 'function') {
-      window.addScanFolder(folder.path);
+      folders.forEach(f => window.addScanFolder(f.path));
     }
   }, false);
 }

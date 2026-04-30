@@ -1402,12 +1402,25 @@ def watch_status():
     return jsonify(watcher.get_status(since_id=since_id))
 
 
+# Auto-resume any prior watch in a daemon thread so it never blocks startup.
+# The classifier is lazy-loaded when the first event fires, so this is cheap.
+def _resume_watch_in_background():
+    try:
+        watcher.try_resume_from_disk()
+    except Exception as e:
+        log.warning(f"Failed to auto-resume watcher: {e}")
+
+threading.Thread(target=_resume_watch_in_background, daemon=True).start()
+
+
 # ── Graceful Shutdown ─────────────────────────────────────────────────────────
 
 def _handle_shutdown(signum, frame):
     log.info("Backend shutting down gracefully.")
     try:
-        watcher.stop_watch()
+        # persist=False so the watch can auto-resume on next launch; the user
+        # didn't explicitly turn it off.
+        watcher.stop_watch(persist=False)
     except Exception:
         pass
     sys.exit(0)

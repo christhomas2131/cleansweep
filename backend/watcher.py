@@ -10,6 +10,7 @@ Lifecycle is in-memory only — the watch resets on backend restart.
 
 import os
 import io
+import json
 import time
 import base64
 import threading
@@ -17,6 +18,10 @@ import logging
 from collections import deque
 
 from PIL import Image, ImageOps
+
+from paths import get_app_data_dir
+
+_STATE_FILE = os.path.join(get_app_data_dir(), "watch.json")
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +50,54 @@ _worker_stop = threading.Event()
 _worker_thread = None
 _classifier = None
 _classifier_lock = threading.Lock()
+
+
+def _save_persistent_state():
+    """Persist enabled folder + threshold so the watch can auto-resume on next launch."""
+    try:
+        with _state_lock:
+            data = {
+                "enabled": bool(_state["watching"]),
+                "folder": _state["folder"],
+                "threshold": _state["threshold"],
+            }
+        with open(_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        log.warning(f"Watcher: failed to persist state: {e}")
+
+
+def _load_persistent_state():
+    """Read watch.json. Returns dict or None."""
+    try:
+        if not os.path.isfile(_STATE_FILE):
+            return None
+        with open(_STATE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        log.warning(f"Watcher: failed to read persistent state: {e}")
+        return None
+
+
+def try_resume_from_disk():
+    """
+    If a previous session left an enabled watch on a folder that still exists,
+    restart it. Safe to call from any thread; safe if no prior state. Returns
+    True if resumed, False otherwise.
+    """
+    data = _load_persistent_state()
+    if not data or not data.get("enabled"):
+        return False
+    folder = data.get("folder")
+    threshold = data.get("threshold", 0.5)
+    if not folder or not os.path.isdir(folder):
+        log.info(f"Watcher: not resuming — folder missing or invalid: {folder}")
+        return False
+    log.info(f"Watcher: auto-resuming watch on {folder}")
+    ok, err = start_watch(folder, threshold)
+    if not ok:
+        log.warning(f"Watcher: auto-resume failed: {err}")
+    return ok
 
 
 def _load_classifier_once():
@@ -219,6 +272,7 @@ def start_watch(folder, threshold=0.5):
             _state["error"] = None
             # Don't reset history on restart — let frontend dedupe by id.
 
+        _save_persistent_state()
         log.info(f"Watching {folder} at threshold {threshold}")
         return True, None
     except Exception as e:
@@ -226,8 +280,15 @@ def start_watch(folder, threshold=0.5):
         return False, f"Failed to start watcher: {e}"
 
 
-def stop_watch():
-    """Stop the current watch. Idempotent."""
+def stop_watch(persist=True):
+    """
+    Stop the current watch. Idempotent.
+
+    persist=True  → user explicitly turned watch off; write enabled:false to disk
+                    so we don't auto-resume next launch.
+    persist=False → process is shutting down (SIGTERM/SIGINT); leave the on-disk
+                    state alone so the watch can auto-resume on the next launch.
+    """
     global _observer, _worker_thread
 
     _worker_stop.set()
@@ -255,7 +316,9 @@ def stop_watch():
         _state["started_at"] = None
         # Preserve recent_flags so the user can still see the last hits.
 
-    log.info("Watcher stopped")
+    if persist:
+        _save_persistent_state()
+    log.info(f"Watcher stopped (persist={persist})")
     return True
 
 

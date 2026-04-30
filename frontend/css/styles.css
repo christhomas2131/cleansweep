@@ -252,7 +252,7 @@ html.platform-mac #title-bar {
   /* Title bar fully transparent so window vibrancy shows through —
      the frosted-glass effect is what makes this feel native on macOS. */
   background: transparent;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-subtle);
 }
 /* Slightly translucent body so vibrancy peeks through behind the content.
    The cards/surfaces remain fully opaque so text stays crisp. */
@@ -805,6 +805,62 @@ input[type="checkbox"] {
 }
 .step-dot.active { background: var(--accent); }
 
+/* Hero shield on the welcome screen — gentle scale pulse + check stroke
+   draws in once on mount. */
+.first-run-hero-shield {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-5);
+}
+.first-run-hero-shield svg {
+  width: 72px;
+  height: 72px;
+  color: var(--accent);
+  filter: drop-shadow(0 6px 24px var(--accent-subtle));
+  animation: shieldPulse 3.4s var(--ease) infinite;
+}
+.first-run-hero-shield .shield-check {
+  stroke-dasharray: 14;
+  stroke-dashoffset: 14;
+  animation: checkDraw 700ms var(--ease) 380ms forwards;
+}
+@keyframes shieldPulse {
+  0%, 100% { transform: scale(1);   opacity: 0.95; }
+  50%      { transform: scale(1.04); opacity: 1; }
+}
+@keyframes checkDraw {
+  to { stroke-dashoffset: 0; }
+}
+
+/* Ring progress on the model-download step */
+.first-run-ring {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: var(--space-6) auto var(--space-3);
+  width: 120px;
+  height: 120px;
+  color: var(--accent);
+}
+.first-run-ring svg circle { transition: stroke-dashoffset 220ms var(--ease); }
+.first-run-ring-pct {
+  position: absolute;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  font-feature-settings: 'tnum' 1;
+}
+.first-run-progress-meta {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: var(--space-2);
+}
+
 .first-run-title {
   font-family: var(--font-display);
   font-size: var(--text-3xl);
@@ -910,6 +966,21 @@ input[type="checkbox"] {
   max-width: 480px;
   margin: 0 auto;
 }
+/* Calm, persistent privacy reassurance under the subtitle on the scan-setup screen. */
+.privacy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-3);
+  padding: 4px 10px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  letter-spacing: 0.01em;
+}
+.privacy-pill svg { color: var(--text-tertiary); flex-shrink: 0; }
 
 .setup-card {
   background: transparent;
@@ -1118,7 +1189,8 @@ input[type="checkbox"] {
   overflow: hidden;
 }
 /* Subtle moving shimmer while a scan is active — pure CSS, no JS toggle.
-   The fill is non-zero only during scanning, so the shimmer rides along. */
+   The fill is non-zero only during scanning, so the shimmer rides along.
+   Light mode: tint inverted so the shimmer reads on the accent fill. */
 .progress-bar-fill::after {
   content: "";
   position: absolute;
@@ -1126,11 +1198,19 @@ input[type="checkbox"] {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.16) 50%,
+    rgba(255, 255, 255, 0.22) 50%,
     transparent 100%
   );
   transform: translateX(-100%);
   animation: progressShimmer 1.6s ease-in-out infinite;
+}
+body.theme-light .progress-bar-fill::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.40) 50%,
+    transparent 100%
+  );
 }
 @keyframes progressShimmer {
   0%   { transform: translateX(-100%); }
@@ -1768,7 +1848,7 @@ input[type="checkbox"] {
 /* Subtle "focused" ring — last clicked card; tapped by Spacebar Quick Look. */
 .result-card.focused:not(.selected) {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
 }
 
 .card-thumb-area {
@@ -2271,11 +2351,11 @@ html.no-electron .card-open-folder-btn { display: none; }
   max-width: min(900px, 92vw);
   max-height: 88vh;
   width: 100%;
-  background: var(--bg-surface-1, #1a1a1a);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
   animation: qlScaleIn 160ms var(--ease);
 }
 .quicklook-header {
@@ -2283,7 +2363,7 @@ html.no-electron .card-open-folder-btn { display: none; }
   align-items: center;
   justify-content: space-between;
   padding: 14px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
 .quicklook-title {
@@ -2322,14 +2402,16 @@ html.no-electron .card-open-folder-btn { display: none; }
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
-.quicklook-close:hover { background: rgba(255, 255, 255, 0.06); color: var(--text-primary); }
+.quicklook-close:hover { background: var(--bg-surface-2); color: var(--text-primary); }
 .quicklook-body {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: #000;
+  /* Always dark to give the previewed image maximum contrast — even in light mode,
+     a darker stage frames the image like a Mac Quick Look. */
+  background: #0a0a0c;
   overflow: hidden;
   min-height: 0;
 }
@@ -2348,7 +2430,7 @@ html.no-electron .card-open-folder-btn { display: none; }
   align-items: center;
   justify-content: space-between;
   padding: 10px 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--border-subtle);
   font-size: 11px;
   color: var(--text-tertiary);
   font-family: var(--font-mono, monospace);
@@ -2375,4 +2457,57 @@ html.no-electron .card-open-folder-btn { display: none; }
 @keyframes qlScaleIn {
   from { opacity: 0; transform: scale(0.96); }
   to   { opacity: 1; transform: scale(1); }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   DROP OVERLAY — full-window cue when a folder is dragged in
+═══════════════════════════════════════════════════════════════════ */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms var(--ease);
+  background: rgba(10, 12, 18, 0.55);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+.drop-overlay.visible { opacity: 1; }
+.drop-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 36px 44px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.32);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  text-align: center;
+}
+body.theme-light .drop-overlay-card {
+  border-color: rgba(0, 0, 0, 0.22);
+  background: rgba(255, 255, 255, 0.16);
+}
+.drop-overlay-shield {
+  width: 56px;
+  height: 56px;
+  color: rgba(255, 255, 255, 0.92);
+  filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.4));
+}
+body.theme-light .drop-overlay-shield { color: rgba(255, 255, 255, 1); }
+.drop-overlay-title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+.drop-overlay-sub {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }

@@ -48,6 +48,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   /** Set the Dock badge to the given integer. Pass 0 to clear. */
   setDockBadge: (count) => ipcRenderer.send("set-dock-badge", count),
 
+  /** Bounce the Dock icon. type: 'informational' (default) or 'critical'. No-op when window focused. */
+  bounceDock: (type) => ipcRenderer.send("dock-bounce", type || "informational"),
+
   /** Mac: open System Settings → Privacy & Security → Files & Folders. */
   openSystemPrivacySettings: () => ipcRenderer.invoke("open-system-privacy"),
 });

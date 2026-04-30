@@ -3,7 +3,7 @@
  * Spawns the Python backend, creates the BrowserWindow, handles IPC.
  */
 
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, nativeImage } = require("electron");
 const path = require("path");
 const { spawn, execSync } = require("child_process");
 const http = require("http");
@@ -175,12 +175,22 @@ function checkHealth(retries = 30) {
 // ── Create Window ─────────────────────────────────────────────────────────────
 function createWindow() {
   const isMac = process.platform === "darwin";
+
+  // App icon — use the PNG we render at build time. On Mac the dock icon
+  // is also set explicitly below; on Windows/Linux this drives the window icon.
+  const iconPath = path.join(__dirname, "..", "resources", "icon.png");
+  const windowIcon = fs.existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : undefined;
+  if (isMac && app.dock && windowIcon && !windowIcon.isEmpty()) {
+    try { app.dock.setIcon(windowIcon); } catch (_) { /* harmless */ }
+  }
+
   mainWindow = new BrowserWindow({
     title: "CleanSweep",
     width: 1000,
     height: 700,
     minWidth: 900,
     minHeight: 600,
+    icon: windowIcon,
     // Mac: hiddenInset puts the traffic-light buttons inset over the page,
     // no native title bar — gives a modern Mac look.
     // Windows / Linux: keep the chromeless window so the custom HTML title bar provides controls.
@@ -330,6 +340,17 @@ ipcMain.on("set-dock-badge", (_event, count) => {
     } else if (typeof app.setBadgeCount === "function") {
       app.setBadgeCount(count || 0);
     }
+  } catch (_) { /* best-effort */ }
+});
+
+// ── Dock bounce (Mac) — gentle attention cue when window is hidden ──────────
+ipcMain.on("dock-bounce", (_event, type) => {
+  try {
+    if (process.platform !== "darwin" || !app.dock) return;
+    // Only bounce if the window isn't focused — otherwise the user is already looking at it.
+    const focused = mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused();
+    if (focused) return;
+    app.dock.bounce(type === "critical" ? "critical" : "informational");
   } catch (_) { /* best-effort */ }
 });
 
@@ -550,6 +571,21 @@ app.on("open-file", (event, filePath) => {
 });
 
 app.whenReady().then(async () => {
+  // Native About panel (Mac shows this when the user picks CleanSweep → About CleanSweep)
+  try {
+    const pkg = require(path.join(__dirname, "package.json"));
+    const aboutIcon = path.join(__dirname, "..", "resources", "icon.png");
+    app.setAboutPanelOptions({
+      applicationName: "CleanSweep",
+      applicationVersion: pkg.version || "0.1.0",
+      version: pkg.version || "0.1.0",
+      copyright: `© ${new Date().getFullYear()} CleanSweep · Made on macOS`,
+      credits: "Find and remove sensitive content from your files — privately, on your machine.",
+      authors: ["christhomas2131"],
+      iconPath: fs.existsSync(aboutIcon) ? aboutIcon : undefined,
+    });
+  } catch (_) { /* About panel is nice-to-have */ }
+
   buildAppMenu();
   spawnBackend();
 

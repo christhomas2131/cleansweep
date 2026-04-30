@@ -237,6 +237,8 @@
 
     // Mac dock badge — surfaces the flagged count even when the app isn't focused.
     window.electronAPI?.setDockBadge?.(flagged);
+    // Gentle dock bounce (no-op if the window has focus) — Mac attention cue.
+    window.electronAPI?.bounceDock?.(flagged > 0 ? 'informational' : 'informational');
 
     // Store total scanned count for review screen header
     try { sessionStorage.setItem('lastScanTotal', JSON.stringify({ total: p.total || 0, scanned: p.scanned || 0 })); } catch {}

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2a2a3e"/>
+      <stop offset="50%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#0d0d18"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="60%" stop-color="#cbd5e1"/>
+      <stop offset="100%" stop-color="#94a3b8"/>
+    </linearGradient>
+    <linearGradient id="topHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="40%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shieldShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="14"/>
+      <feOffset dy="10"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Squircle background -->
+  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228" fill="url(#bg)"/>
+  <!-- Top inner highlight for depth -->
+  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228" fill="url(#topHighlight)"/>
+
+  <!-- Shield (CleanSweep mark, scaled from the title-bar SVG) -->
+  <g filter="url(#shieldShadow)">
+    <path d="M512 174
+             L798 304
+             L798 538
+             C798 694 668 798 512 850
+             C356 798 226 694 226 538
+             L226 304 Z"
+          fill="url(#shield)"
+          stroke="#ffffff"
+          stroke-opacity="0.18"
+          stroke-width="3"/>
+  </g>
+
+  <!-- Checkmark inside shield -->
+  <path d="M388 510 L484 606 L640 430"
+        fill="none"
+        stroke="#0d0d18"
+        stroke-width="52"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        opacity="0.9"/>
+</svg>
