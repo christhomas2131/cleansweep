@@ -220,6 +220,7 @@
   function onScanComplete(p) {
     updateProgressUI(p);
     const flagged = p.flagged_count || 0;
+    const scanned = p.scanned || 0;
     toast(`Scan complete! Found ${flagged} item${flagged !== 1 ? 's' : ''} to review.`, 'success', 4000);
     window.electronAPI?.setScanRunning?.(false).catch(() => {});
     window.electronAPI?.setTaskbarProgress?.(-1);
@@ -229,6 +230,10 @@
       soundPlayed = true;
       playCompletionSound();
     }
+
+    // Native NotificationCenter alert — only if user has switched away from
+    // the app, otherwise the in-app toast is sufficient.
+    fireCompletionNotification(scanned, flagged);
 
     // Store total scanned count for review screen header
     try { sessionStorage.setItem('lastScanTotal', JSON.stringify({ total: p.total || 0, scanned: p.scanned || 0 })); } catch {}
@@ -248,6 +253,27 @@
   // ── B2: Completion sound ─────────────────────────────────────
   function playCompletionSound() {
     if (currentConfig && currentConfig.sound_enabled === false) return;
+    // On Mac, prefer the system Glass.aiff — it sounds native + matches the
+    // macOS sound design. Falls back to the synth chime if the file isn't
+    // there or playback is blocked (e.g. in browser dev mode).
+    const isMac = window.electronAPI?.platform === 'darwin';
+    if (isMac) {
+      try {
+        const audio = new Audio('file:///System/Library/Sounds/Glass.aiff');
+        audio.volume = 0.5;
+        const promise = audio.play();
+        if (promise && typeof promise.then === 'function') {
+          promise.catch(() => playSynthChime());
+        }
+        return;
+      } catch (_) {
+        // fall through to synth
+      }
+    }
+    playSynthChime();
+  }
+
+  function playSynthChime() {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
@@ -264,6 +290,36 @@
       osc.stop(ctx.currentTime + 0.5);
     } catch (e) {
       // Silent failure is fine for a nice-to-have
+    }
+  }
+
+  // ── Native completion notification (NotificationCenter on Mac) ─────────
+  function fireCompletionNotification(scanned, flagged) {
+    if (!('Notification' in window)) return;
+    // Only show if the window is unfocused — otherwise the in-app toast
+    // already covers it and we'd be double-notifying.
+    if (document.hasFocus()) return;
+    const send = () => {
+      try {
+        const body = flagged > 0
+          ? `${flagged.toLocaleString()} flagged of ${scanned.toLocaleString()} scanned. Click to review.`
+          : `${scanned.toLocaleString()} scanned, nothing flagged.`;
+        const n = new Notification('CleanSweep — Scan complete', {
+          body,
+          silent: currentConfig && currentConfig.sound_enabled === false,
+        });
+        n.onclick = () => {
+          window.focus();
+          if (flagged > 0) showScreen('scan-review');
+        };
+      } catch (_) {}
+    };
+    if (Notification.permission === 'granted') {
+      send();
+    } else if (Notification.permission !== 'denied') {
+      Notification.requestPermission().then(perm => {
+        if (perm === 'granted') send();
+      });
     }
   }
 

@@ -143,19 +143,100 @@ function wireUpTitleBar() {
   }
 }
 
+// ── Menu actions (Mac native menu bar) ───────────────────────
+function wireMenuActions() {
+  if (!window.electronAPI?.onMenuAction) return;
+  window.electronAPI.onMenuAction((action, payload) => {
+    switch (action) {
+      case 'new-scan':
+        showScreen('scan-setup');
+        break;
+      case 'open-folder':
+        showScreen('scan-setup');
+        if (payload && typeof window.addScanFolder === 'function') {
+          window.addScanFolder(payload);
+        }
+        break;
+      case 'settings':
+        showScreen('settings');
+        break;
+      case 'export':
+        // /export is a CSV download — open it via the native handler
+        if (window.electronAPI?.platform) {
+          window.open('http://127.0.0.1:8899/export?format=csv', '_blank');
+        }
+        break;
+      case 'find':
+        // No global search yet; for now jump to review screen if it has results
+        document.getElementById('review-search-input')?.focus();
+        break;
+      default:
+        break;
+    }
+  });
+}
+
+// ── Drag-and-drop a folder anywhere on the window ────────────
+function wireGlobalDragDrop() {
+  // Prevent the browser's default behavior of opening the dropped file
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+    document.addEventListener(evt, e => e.preventDefault(), false);
+  });
+
+  document.addEventListener('drop', e => {
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (!files.length) return;
+    const folder = files.find(f => f.path && (!f.type || f.type === ''));
+    if (!folder?.path) return;
+    showScreen('scan-setup');
+    if (typeof window.addScanFolder === 'function') {
+      window.addScanFolder(folder.path);
+    }
+  }, false);
+}
+
+// ── System theme follow (Mac auto-switch dark/light) ─────────
+function applySystemTheme() {
+  const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+  document.body.classList.toggle('theme-light', prefersLight);
+}
+
+function wireSystemTheme(currentTheme) {
+  const mq = window.matchMedia('(prefers-color-scheme: light)');
+  const handler = () => {
+    if (window.cleanSweepThemeMode === 'system') applySystemTheme();
+  };
+  if (mq.addEventListener) {
+    mq.addEventListener('change', handler);
+  } else if (mq.addListener) {
+    mq.addListener(handler);
+  }
+  // Native theme change (when sent from Electron main)
+  window.electronAPI?.onNativeThemeUpdated?.(() => {
+    if (window.cleanSweepThemeMode === 'system') applySystemTheme();
+  });
+}
+
 // ── App initialization ───────────────────────────────────────
 document.addEventListener('DOMContentLoaded', initApp);
 
 async function initApp() {
   wireUpTitleBar();
+  wireMenuActions();
+  wireGlobalDragDrop();
   startConnectionMonitor();
 
-  // Apply saved theme as early as possible
+  // Apply saved theme as early as possible. theme: 'system' follows the OS.
   api.config().then(cfg => {
-    if (cfg && cfg.theme === 'light') {
+    const mode = cfg?.theme || 'dark';
+    window.cleanSweepThemeMode = mode;
+    if (mode === 'light') {
       document.body.classList.add('theme-light');
+    } else if (mode === 'system') {
+      applySystemTheme();
     }
-  }).catch(() => {});
+    wireSystemTheme(mode);
+  }).catch(() => { wireSystemTheme('dark'); });
 
   // Health check with retries before doing anything
   let healthy = false;

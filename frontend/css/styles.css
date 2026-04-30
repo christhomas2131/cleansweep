@@ -249,6 +249,47 @@ html.platform-mac #btn-close {
 }
 html.platform-mac #title-bar {
   padding-left: 80px;
+  /* Title bar fully transparent so window vibrancy shows through —
+     the frosted-glass effect is what makes this feel native on macOS. */
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+/* Slightly translucent body so vibrancy peeks through behind the content.
+   The cards/surfaces remain fully opaque so text stays crisp. */
+html.platform-mac body {
+  background: rgba(15, 15, 15, 0.78);
+}
+html.platform-mac body.theme-light {
+  background: rgba(248, 248, 250, 0.72);
+}
+
+/* Theme segmented control (Dark / Light / System) */
+.theme-segmented {
+  display: inline-flex;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+.theme-seg {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  padding: 4px 12px;
+  border-radius: calc(var(--radius-sm) - 2px);
+  cursor: pointer;
+  transition: background var(--duration-instant) var(--ease),
+              color var(--duration-instant) var(--ease);
+}
+.theme-seg:hover { color: var(--text-primary); }
+.theme-seg.active {
+  background: var(--bg-surface-3, var(--bg-base));
+  color: var(--text-primary);
 }
 
 /* Tier badge — quiet pill */

@@ -573,4 +573,11 @@
   window.deleteHistoryEntry = deleteHistoryEntry;
 
   window.initScanSetup = initScanSetup;
+  // Exposed so the global menu/drop handlers in app.js can add a folder
+  // from anywhere (e.g. ⌘O, drag-drop onto the window, dock-icon drop).
+  window.addScanFolder = (path) => {
+    // If scan-setup hasn't been initialized yet (first-run state), kick it off.
+    if (!setupInitialized) initScanSetup();
+    return addFolder(path);
+  };
 })();

@@ -38,4 +38,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   /** Open a file's containing folder in Explorer with the file selected */
   openContainingFolder: (filePath) => ipcRenderer.invoke("open-containing-folder", filePath),
+
+  /** Subscribe to native menu actions (new-scan, open-folder, settings, export, find). */
+  onMenuAction: (cb) => ipcRenderer.on("menu-action", (_e, action, payload) => cb(action, payload)),
+
+  /** Subscribe to system theme changes (Mac dark/light follows system when enabled). */
+  onNativeThemeUpdated: (cb) => ipcRenderer.on("native-theme-updated", (_e, info) => cb(info)),
 });

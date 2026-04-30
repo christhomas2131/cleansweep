@@ -137,12 +137,13 @@
             <div class="settings-row">
               <div class="settings-row-info">
                 <div class="settings-row-name">Theme</div>
-                <div class="settings-row-desc">Switch between dark and light mode.</div>
+                <div class="settings-row-desc">Dark, light, or follow your system setting.</div>
               </div>
               <div class="settings-row-control">
-                <div class="toggle ${theme === 'light' ? 'on' : ''}" id="toggle-theme">
-                  <div class="toggle-track"></div>
-                  <span class="toggle-label" id="theme-toggle-label">${theme === 'light' ? 'Light' : 'Dark'}</span>
+                <div class="theme-segmented" id="theme-segmented" role="group" aria-label="Theme">
+                  <button class="theme-seg ${theme === 'dark' ? 'active' : ''}" data-theme="dark">Dark</button>
+                  <button class="theme-seg ${theme === 'light' ? 'active' : ''}" data-theme="light">Light</button>
+                  <button class="theme-seg ${theme === 'system' ? 'active' : ''}" data-theme="system">System</button>
                 </div>
               </div>
             </div>
@@ -272,13 +273,24 @@
       saveConfig({ batch_size: parseInt(e.target.value, 10) });
     });
 
-    // Theme toggle
-    document.getElementById('toggle-theme')?.addEventListener('click', function () {
-      this.classList.toggle('on');
-      const isLight = this.classList.contains('on');
-      this.querySelector('.toggle-label').textContent = isLight ? 'Light' : 'Dark';
-      document.body.classList.toggle('theme-light', isLight);
-      saveConfig({ theme: isLight ? 'light' : 'dark' });
+    // Theme segmented control (Dark / Light / System)
+    document.querySelectorAll('#theme-segmented .theme-seg').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const value = btn.dataset.theme;
+        if (!value) return;
+        document.querySelectorAll('#theme-segmented .theme-seg').forEach(b =>
+          b.classList.toggle('active', b === btn)
+        );
+        // Apply immediately
+        window.cleanSweepThemeMode = value;
+        if (value === 'system') {
+          const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+          document.body.classList.toggle('theme-light', prefersLight);
+        } else {
+          document.body.classList.toggle('theme-light', value === 'light');
+        }
+        saveConfig({ theme: value });
+      });
     });
 
     // License activation / Upgrade

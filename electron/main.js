@@ -3,7 +3,7 @@
  * Spawns the Python backend, creates the BrowserWindow, handles IPC.
  */
 
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme } = require("electron");
 const path = require("path");
 const { spawn, execSync } = require("child_process");
 const http = require("http");
@@ -186,7 +186,11 @@ function createWindow() {
     // Windows / Linux: keep the chromeless window so the custom HTML title bar provides controls.
     frame: isMac ? true : false,
     titleBarStyle: isMac ? "hiddenInset" : "hidden",
-    backgroundColor: "#0f0f0f",
+    // Mac vibrancy: frosted-glass window background. CSS makes the body
+    // partially translucent so this shows through subtly.
+    vibrancy: isMac ? "under-window" : undefined,
+    visualEffectState: isMac ? "active" : undefined,
+    backgroundColor: isMac ? "#00000000" : "#0f0f0f",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -359,6 +363,136 @@ ipcMain.handle("open-containing-folder", (_event, filePath) => {
   }
 });
 
+// ── Native application menu (Mac-first; works on Windows/Linux too) ─────────
+function sendToRenderer(channel, ...args) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, ...args);
+  }
+}
+
+function buildAppMenu() {
+  const isMac = process.platform === "darwin";
+  const appName = app.name || "CleanSweep";
+
+  const template = [
+    // App menu (Mac only) — quit, services, hide, etc.
+    ...(isMac ? [{
+      label: appName,
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        {
+          label: "Settings…",
+          accelerator: "Cmd+,",
+          click: () => sendToRenderer("menu-action", "settings"),
+        },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    }] : []),
+
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "New Scan…",
+          accelerator: "CmdOrCtrl+N",
+          click: () => sendToRenderer("menu-action", "new-scan"),
+        },
+        {
+          label: "Open Folder…",
+          accelerator: "CmdOrCtrl+O",
+          click: async () => {
+            const result = await dialog.showOpenDialog(mainWindow, {
+              properties: ["openDirectory"],
+              title: "Select folder to scan",
+            });
+            if (!result.canceled && result.filePaths.length) {
+              sendToRenderer("menu-action", "open-folder", result.filePaths[0]);
+            }
+          },
+        },
+        { type: "separator" },
+        {
+          label: "Export Results…",
+          accelerator: "CmdOrCtrl+E",
+          click: () => sendToRenderer("menu-action", "export"),
+        },
+        { type: "separator" },
+        isMac ? { role: "close" } : { role: "quit" },
+      ],
+    },
+
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+        { type: "separator" },
+        {
+          label: "Find…",
+          accelerator: "CmdOrCtrl+F",
+          click: () => sendToRenderer("menu-action", "find"),
+        },
+      ],
+    },
+
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" },
+        { role: "zoom" },
+        ...(isMac ? [
+          { type: "separator" },
+          { role: "front" },
+          { type: "separator" },
+          { role: "window" },
+        ] : [
+          { role: "close" },
+        ]),
+      ],
+    },
+
+    {
+      role: "help",
+      submenu: [
+        {
+          label: "CleanSweep on GitHub",
+          click: () => shell.openExternal("https://github.com/christhomas2131/cleansweep"),
+        },
+      ],
+    },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 // ── Parse --scan-folder CLI arg ──────────────────────────────────────────────
 function getScanFolderArg() {
   for (const arg of process.argv) {
@@ -376,7 +510,21 @@ function getScanFolderArg() {
 }
 
 // ── App Lifecycle ─────────────────────────────────────────────────────────────
+// Track dock-icon folder drops fired before the renderer is ready.
+let pendingOpenFolder = null;
+
+app.on("open-file", (event, filePath) => {
+  // macOS dock drops + Finder "Open With" route through here.
+  event.preventDefault();
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.isLoading() === false) {
+    sendToRenderer("menu-action", "open-folder", filePath);
+  } else {
+    pendingOpenFolder = filePath;
+  }
+});
+
 app.whenReady().then(async () => {
+  buildAppMenu();
   spawnBackend();
 
   try {
@@ -391,6 +539,21 @@ app.whenReady().then(async () => {
   }
 
   createWindow();
+
+  // If a dock-drop arrived before the window existed, replay it once loaded.
+  if (pendingOpenFolder) {
+    mainWindow.webContents.once("did-finish-load", () => {
+      sendToRenderer("menu-action", "open-folder", pendingOpenFolder);
+      pendingOpenFolder = null;
+    });
+  }
+
+  // Push system theme changes to the renderer for the 'system' theme option.
+  nativeTheme.on("updated", () => {
+    sendToRenderer("native-theme-updated", {
+      shouldUseDarkColors: nativeTheme.shouldUseDarkColors,
+    });
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
