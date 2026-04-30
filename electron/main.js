@@ -19,18 +19,45 @@ let backendRestarts = 0;
 const MAX_RESTARTS = 3;
 
 // ── Backend spawn ─────────────────────────────────────────────────────────────
+function detectPythonInterpreter() {
+  // 1. Project-local virtualenv at backend/.venv (preferred — has all deps installed).
+  const venvPython =
+    process.platform === "win32"
+      ? path.join(__dirname, "..", "backend", ".venv", "Scripts", "python.exe")
+      : path.join(__dirname, "..", "backend", ".venv", "bin", "python");
+  if (fs.existsSync(venvPython)) {
+    return { cmd: venvPython, prefixArgs: [] };
+  }
+
+  // 2. Windows: the py launcher can pick a specific Python version.
+  if (process.platform === "win32") {
+    return { cmd: "py", prefixArgs: ["-3.12"] };
+  }
+
+  // 3. macOS / Linux: try a specific 3.12 binary, then fall back through 3.11/3.10/3.
+  const candidates = ["python3.12", "python3.11", "python3.10", "python3"];
+  for (const candidate of candidates) {
+    try {
+      execSync(`command -v ${candidate}`, { stdio: ["ignore", "pipe", "ignore"] });
+      return { cmd: candidate, prefixArgs: [] };
+    } catch (_) {
+      // not found, try next
+    }
+  }
+
+  // 4. Last resort
+  return { cmd: "python3", prefixArgs: [] };
+}
+
 function getBackendCommand() {
   if (isDev) {
-    // Development: run Python 3.12 via the py launcher
     const serverPath = path.join(__dirname, "..", "backend", "server.py");
-    return { cmd: "py", args: ["-3.12", serverPath], cwd: path.join(__dirname, "..") };
+    const { cmd, prefixArgs } = detectPythonInterpreter();
+    return { cmd, args: [...prefixArgs, serverPath], cwd: path.join(__dirname, "..") };
   } else {
-    // Production: use the packaged exe
-    const backendExe = path.join(
-      process.resourcesPath,
-      "backend",
-      "cleansweep-engine.exe"
-    );
+    // Production: use the packaged binary (extension differs per platform)
+    const exeName = process.platform === "win32" ? "cleansweep-engine.exe" : "cleansweep-engine";
+    const backendExe = path.join(process.resourcesPath, "backend", exeName);
     return { cmd: backendExe, args: [], cwd: process.resourcesPath };
   }
 }
@@ -51,18 +78,26 @@ function logBackendError(msg) {
 
 function spawnBackend() {
   const { cmd, args, cwd } = getBackendCommand();
-  console.log('Spawning backend with Python 3.12');
+  console.log(`Spawning backend: ${cmd} ${args.join(" ")}`);
 
-  // Resolve bundled ffmpeg path so the backend doesn't need it on system PATH
+  // Resolve bundled ffmpeg path so the backend doesn't need it on system PATH.
+  // On macOS/Linux the binary has no extension; if no bundled binary exists,
+  // the backend's own search (which includes Homebrew paths and PATH) takes over.
+  const ffmpegName = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
   const ffmpegPath = isDev
-    ? path.join(__dirname, "..", "resources", "ffmpeg.exe")
-    : path.join(process.resourcesPath, "ffmpeg.exe");
+    ? path.join(__dirname, "..", "resources", ffmpegName)
+    : path.join(process.resourcesPath, ffmpegName);
+
+  const env = { ...process.env };
+  if (fs.existsSync(ffmpegPath)) {
+    env.CLEANSWEEP_FFMPEG_PATH = ffmpegPath;
+  }
 
   try {
     backendProcess = spawn(cmd, args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, CLEANSWEEP_FFMPEG_PATH: ffmpegPath },
+      env,
     });
 
     backendProcess.stdout.on("data", (data) => {
@@ -139,15 +174,19 @@ function checkHealth(retries = 30) {
 
 // ── Create Window ─────────────────────────────────────────────────────────────
 function createWindow() {
+  const isMac = process.platform === "darwin";
   mainWindow = new BrowserWindow({
     title: "CleanSweep",
     width: 1000,
     height: 700,
     minWidth: 900,
     minHeight: 600,
-    titleBarStyle: "hidden",
+    // Mac: hiddenInset puts the traffic-light buttons inset over the page,
+    // no native title bar — gives a modern Mac look.
+    // Windows / Linux: keep the chromeless window so the custom HTML title bar provides controls.
+    frame: isMac ? true : false,
+    titleBarStyle: isMac ? "hiddenInset" : "hidden",
     backgroundColor: "#0f0f0f",
-    frame: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,

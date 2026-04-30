@@ -23,14 +23,17 @@ def _get_ffmpeg_binary(name="ffmpeg"):
     Search order:
       1. CLEANSWEEP_FFMPEG_PATH env var (set by Electron to the bundled binary)
       2. electron/resources/ relative to this file (dev mode)
-      3. System PATH fallback
+      3. shutil.which() — picks up anything on PATH
+      4. Common Homebrew / system locations on macOS and Linux
+      5. Bare name (last-resort fallback)
     """
     ext = ".exe" if os.name == "nt" else ""
+    bin_name = name + ext
 
-    # 1. Env var points to bundled ffmpeg.exe — look for sibling binaries there too
+    # 1. Env var points to bundled binary — look for sibling binaries there too
     env_path = os.environ.get("CLEANSWEEP_FFMPEG_PATH", "")
     if env_path and os.path.isfile(env_path):
-        sibling = os.path.join(os.path.dirname(env_path), name + ext)
+        sibling = os.path.join(os.path.dirname(env_path), bin_name)
         if os.path.isfile(sibling):
             return sibling
 
@@ -39,12 +42,24 @@ def _get_ffmpeg_binary(name="ffmpeg"):
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "resources",
     )
-    candidate = os.path.join(dev_resources, name + ext)
+    candidate = os.path.join(dev_resources, bin_name)
     if os.path.isfile(candidate):
         return candidate
 
-    # 3. System PATH
-    return name
+    # 3. PATH lookup
+    found = shutil.which(bin_name)
+    if found:
+        return found
+
+    # 4. Common locations not always on PATH (Homebrew on Apple Silicon / Intel, Linux)
+    if os.name != "nt":
+        for d in ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/opt/local/bin"):
+            cand = os.path.join(d, bin_name)
+            if os.path.isfile(cand):
+                return cand
+
+    # 5. Last resort — return the bare name and let subprocess fail loudly
+    return bin_name
 
 
 def check_ffmpeg():

@@ -238,6 +238,19 @@ body {
   color: #fff;
 }
 
+/* macOS — Electron's hiddenInset titleBarStyle inlays traffic-light buttons
+   into the top-left corner of the page. Hide our redundant window controls
+   and pad the left side of the title bar so the shield/app-name doesn't
+   collide with the OS-supplied buttons. */
+html.platform-mac #btn-minimize,
+html.platform-mac #btn-maximize,
+html.platform-mac #btn-close {
+  display: none;
+}
+html.platform-mac #title-bar {
+  padding-left: 80px;
+}
+
 /* Tier badge — quiet pill */
 .title-tier-badge {
   display: inline-flex;

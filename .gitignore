@@ -13,6 +13,10 @@ build/
 .DS_Store
 Thumbs.db
 
+# Python virtualenvs (Mac/Linux dev)
+.venv/
+venv/
+
 # License keys (NEVER COMMIT — these are sellable products)
 licenses_unsold.txt
 licenses_sold.txt

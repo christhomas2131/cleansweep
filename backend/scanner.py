@@ -256,8 +256,8 @@ def run_scan(folders=None, threshold=0.5, scan_images=True, scan_videos=True, sc
             device = -1
 
         # Verify the model is downloaded before attempting to load it
-        _local_app_data = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
-        _models_dir = os.path.join(_local_app_data, "CleanSweep", "models")
+        from paths import get_app_data_dir
+        _models_dir = os.path.join(get_app_data_dir(), "models")
         os.makedirs(_models_dir, exist_ok=True)
         if "TRANSFORMERS_CACHE" not in os.environ:
             os.environ["TRANSFORMERS_CACHE"] = _models_dir

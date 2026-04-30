@@ -6,6 +6,9 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
+  /** Host platform identifier ('darwin' | 'win32' | 'linux') — used to swap title-bar style. */
+  platform: process.platform,
+
   /** Open native folder picker dialog */
   selectFolder: () => ipcRenderer.invoke("select-folder"),
 

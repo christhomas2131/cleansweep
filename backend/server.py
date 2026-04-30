@@ -55,12 +55,18 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+# Add backend dir to path for imports
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BASE_DIR)
+
+from paths import get_app_data_dir
+
+
 def setup_logging():
     """Add a rotating file handler so errors survive terminal/app restarts."""
     try:
         from logging.handlers import RotatingFileHandler
-        _local = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
-        log_dir = os.path.join(_local, "CleanSweep", "logs")
+        log_dir = os.path.join(get_app_data_dir(), "logs")
         os.makedirs(log_dir, exist_ok=True)
         log_file = os.path.join(log_dir, "cleansweep.log")
         fh = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=3)
@@ -74,10 +80,6 @@ def setup_logging():
 
 setup_logging()
 
-# Add backend dir to path for imports
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, BASE_DIR)
-
 from scanner import shared_state, run_scan, set_stop, find_files, _scan_lock, IMAGE_EXTENSIONS, set_pause, clear_pause, is_paused
 from video_scanner import check_ffmpeg, VIDEO_EXTENSIONS
 from document_scanner import DOCUMENT_EXTENSIONS
@@ -87,10 +89,8 @@ from progress import load_progress, save_progress, clear_progress
 app = Flask(__name__)
 CORS(app, origins="*")
 
-# Local app data directory
-LOCAL_APP_DATA = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
-APP_DATA_DIR = os.path.join(LOCAL_APP_DATA, "CleanSweep")
-os.makedirs(APP_DATA_DIR, exist_ok=True)
+# Per-user app data directory (cross-platform)
+APP_DATA_DIR = get_app_data_dir()
 
 LICENSE_FILE = os.path.join(APP_DATA_DIR, "license.json")
 CONFIG_FILE = os.path.join(APP_DATA_DIR, "config.json")

@@ -114,15 +114,25 @@ function wireUpTitleBar() {
   });
 
   if (window.electronAPI) {
-    document.getElementById('btn-minimize')?.addEventListener('click', () =>
-      window.electronAPI.minimizeWindow?.()
-    );
-    document.getElementById('btn-maximize')?.addEventListener('click', () =>
-      window.electronAPI.maximizeWindow?.()
-    );
-    document.getElementById('btn-close')?.addEventListener('click', () =>
-      window.electronAPI.closeWindow?.()
-    );
+    // On macOS the OS provides traffic-light buttons via the native frame,
+    // so the custom HTML min/max/close are redundant. Hide them.
+    if (window.electronAPI.platform === 'darwin') {
+      document.documentElement.classList.add('platform-mac');
+      ['btn-minimize', 'btn-maximize', 'btn-close'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      });
+    } else {
+      document.getElementById('btn-minimize')?.addEventListener('click', () =>
+        window.electronAPI.minimizeWindow?.()
+      );
+      document.getElementById('btn-maximize')?.addEventListener('click', () =>
+        window.electronAPI.maximizeWindow?.()
+      );
+      document.getElementById('btn-close')?.addEventListener('click', () =>
+        window.electronAPI.closeWindow?.()
+      );
+    }
   } else {
     // Non-Electron: hide native window buttons, flag for CSS
     document.documentElement.classList.add('no-electron');
